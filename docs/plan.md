@@ -15,6 +15,7 @@ Each card has a one-line "done when". Order is strict: take from the top.
 | I-6 | Public-API summary and `islet update`. The compiler gets a command that emits a package's exported names, types and access modes; Islet diffs two summaries. | `islet update` offers a compatible bump and refuses an incompatible one, with the exact differences shown. |
 | I-7 | `islet regen`, generators and declared C link inputs. Generator contract settled first (card I-4b, a design doc). | A root project regenerates a file, the result is stored and pinned, and a normal build runs no foreign code. |
 | I-8 | `islet publish`, `audit`, `search`. | End to end against the test registry. |
+| I-9 | Monorepo support: `monorepo.toml`, shared table and exceptions, unify-then-prove, source and API hashes, the task cache, `islet affected`. Needs I-6 first. | A workspace with several members builds with one `deps/`; a body-only change leaves dependents' `check` cached. |
 
 ## Notes
 
