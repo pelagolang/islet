@@ -1,0 +1,10 @@
+#:schema https://pelagolang.github.io/website/schema/islet.toml/1.json
+format = 1
+
+[package]
+name = "wave-sensor"
+version = "0.4.0"
+
+[dependencies]
+json = { from = "monorepo" }
+"json/v2" = { from = "monorepo" }
