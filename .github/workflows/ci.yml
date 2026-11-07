@@ -1,0 +1,17 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  schema:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install jsonschema==4.23.0
+      - name: Validate schemas and examples
+        run: python3 tools/check_schemas.py

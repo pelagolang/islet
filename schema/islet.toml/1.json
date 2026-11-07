@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pelagolang.github.io/website/schema/islet.toml/1.json",
+  "title": "islet.toml",
+  "description": "What a Pelago package is and what it depends on. Validates the TOML data model, which matches JSON.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "package"],
+  "properties": {
+    "format": {
+      "description": "Schema version of this file. Must be 1.",
+      "const": 1
+    },
+    "package": { "$ref": "#/$defs/package" },
+    "dependencies": { "$ref": "#/$defs/dependencies" },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "members": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "generate": {
+      "description": "Generators the root project may run with `pelago regen`. Not allowed in dependencies.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/generator" }
+    },
+    "c": {
+      "description": "C inputs for bindings. Resolved by the tool, never by a script.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sources": { "type": "array", "items": { "type": "string" } },
+        "system": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  },
+  "$defs": {
+    "name": {
+      "description": "Lowercase name with hyphens.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "maxLength": 64
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$"
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "$ref": "#/$defs/name" },
+        "version": { "$ref": "#/$defs/semver" },
+        "license": {
+          "description": "An SPDX expression, such as MIT OR Apache-2.0.",
+          "type": "string",
+          "minLength": 1
+        },
+        "description": { "type": "string", "maxLength": 200 },
+        "authors": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "repository": { "type": "string", "format": "uri" },
+        "publish": {
+          "description": "false keeps the package out of the index.",
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "dependencies": {
+      "type": "object",
+      "propertyNames": {
+        "description": "A package name, optionally with a major path such as /v2.",
+        "pattern": "^[a-z][a-z0-9-]*(/v[2-9][0-9]*)?$"
+      },
+      "additionalProperties": {
+        "oneOf": [
+          { "$ref": "#/$defs/semver" },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["version"],
+            "properties": {
+              "version": {
+                "description": "Minimum version. Resolved by minimal version selection.",
+                "$ref": "#/$defs/semver"
+              },
+              "package": {
+                "description": "The real package name, when the key is a local alias.",
+                "$ref": "#/$defs/name"
+              },
+              "target": {
+                "description": "Only fetch and build for this target name.",
+                "type": "string",
+                "minLength": 1
+              },
+              "git": {
+                "description": "A private or unpublished source. Hashed on fetch.",
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "inputs", "outputs"],
+      "properties": {
+        "tool": { "type": "string", "minLength": 1 },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "outputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}
