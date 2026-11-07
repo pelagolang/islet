@@ -1,0 +1,56 @@
+name: conventional-commits
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  title:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5.5.3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            perf
+            refactor
+            docs
+            test
+            chore
+            ci
+            build
+            revert
+          requireScope: false
+          subjectPattern: ^[^A-Z].*[^.]$
+          subjectPatternError: |
+            The summary "{subject}" must start with a lowercase letter and must not end with a period.
+            See CONTRIBUTING.md.
+
+  commits:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check commit subjects
+        env:
+          RANGE: ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
+        run: |
+          pattern='^(feat|fix|perf|refactor|docs|test|chore|ci|build|revert)(\([a-z0-9._/-]+\))?!?: [^A-Z].*[^.]$|^Revert "'
+          bad=0
+          while IFS= read -r line; do
+            sha=${line%% *}
+            subject=${line#* }
+            if ! printf '%s\n' "$subject" | grep -Eq "$pattern"; then
+              echo "::error::${sha}: \"${subject}\" is not a conventional commit subject (see CONTRIBUTING.md)"
+              bad=1
+            fi
+          done < <(git log --no-merges --format='%h %s' "$RANGE")
+          exit $bad
