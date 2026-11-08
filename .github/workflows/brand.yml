@@ -1,0 +1,46 @@
+name: brand
+
+# Rebuilds the brand assets on every OS the build script claims to support. The SVGs must come out
+# identical (they are generated); the PNG, ICO and ICNS files must exist and be valid.
+on:
+  push:
+    paths:
+      - "brand/**"
+      - ".github/workflows/brand.yml"
+  pull_request:
+    paths:
+      - "brand/**"
+      - ".github/workflows/brand.yml"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build everything (finds the browser itself)
+        run: python brand/build/build.py
+      - name: SVGs are reproducible
+        run: git diff --exit-code --ignore-cr-at-eol -- "brand/**/*.svg"
+      - name: Exports are present and valid
+        shell: python
+        run: |
+          import pathlib, struct
+          root = pathlib.Path("brand")
+          pngs = list(root.rglob("*.png"))
+          assert len(pngs) > 40, len(pngs)
+          for p in pngs:
+              d = p.read_bytes()
+              assert d[:8] == b"\x89PNG\r\n\x1a\n" and len(d) > 200, p
+              w, h = struct.unpack(">II", d[16:24])
+              assert w > 0 and h > 0, p
+          for name, magic in (("icon/islet.icns", b"icns"), ("icon/islet.ico", b"\x00\x00\x01\x00")):
+              d = (root / name).read_bytes()
+              assert d[:4] == magic, name
+          print(len(pngs), "PNG files ok")
