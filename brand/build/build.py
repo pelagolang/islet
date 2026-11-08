@@ -996,8 +996,213 @@ def spec_file_monorepo():
     return _icon_spec("File icon: monorepo.toml", "A cube of 27 blocks on the tile. Pink: construction; green arrows: one step along each axis.", file_icon("monorepo-toml", False), guides, notes, ((steps, 150),))
 
 
+# ---------------------------------------------------------------- step-by-step file icon sheets
+
+def _gl(x1, y1, x2, y2, dash=None, w=1.5, col=None):
+    d = f' stroke-dasharray="{dash}"' if dash else ""
+    return f'<line x1="{x1:.2f}" y1="{y1:.2f}" x2="{x2:.2f}" y2="{y2:.2f}" stroke="{col or GUIDE}" stroke-width="{w}" vector-effect="non-scaling-stroke"{d}/>'
+
+
+def _gc(x, y, r, dash="4 4", w=1.3, col=None):
+    d = f' stroke-dasharray="{dash}"' if dash else ""
+    return f'<circle cx="{x:.2f}" cy="{y:.2f}" r="{r:.2f}" fill="none" stroke="{col or GUIDE}" stroke-width="{w}" vector-effect="non-scaling-stroke"{d}/>'
+
+
+def _gp(path, w=1.6, col=None, dash=None, fill="none"):
+    d = f' stroke-dasharray="{dash}"' if dash else ""
+    return f'<path d="{path}" fill="{fill}" stroke="{col or GUIDE}" stroke-width="{w}" vector-effect="non-scaling-stroke" stroke-linejoin="round"{d}/>'
+
+
+def _gd(x, y, u):
+    return f'<circle cx="{x:.2f}" cy="{y:.2f}" r="{3.5 * u:.2f}" fill="{GUIDE}"/>'
+
+
+def _gt(x, y, text, u, anchor="start", size=12, col=None, weight=700):
+    return (f'<text x="{x:.2f}" y="{y:.2f}" font-family="{FONT}" font-size="{size * u:.2f}" font-weight="{weight}" '
+            f'text-anchor="{anchor}" fill="{col or GUIDE}">{text}</text>')
+
+
+def _hex_pts(cx, cy, r):
+    return [(cx + r * math.cos(math.radians(-90 + 60 * k)), cy + r * math.sin(math.radians(-90 + 60 * k))) for k in range(6)]
+
+
+def _poly_d(pts):
+    return "M" + "L".join(f"{x:.2f} {y:.2f}" for x, y in pts) + "Z"
+
+
+def _ab_points(pts, rho):
+    """The points A and B (rho back along each side) of every corner of a polygon."""
+    out = []
+    n = len(pts)
+    for i in range(n):
+        p0, p1, p2 = pts[i - 1], pts[i], pts[(i + 1) % n]
+        for q in (p0, p2):
+            L = math.hypot(q[0] - p1[0], q[1] - p1[1])
+            out.append((p1[0] + (q[0] - p1[0]) * rho / L, p1[1] + (q[1] - p1[1]) * rho / L))
+    return out
+
+
+def step_sheet(title, sub, panels, cols=4):
+    """Panels of (title, text, view, art): `view` is (x, y, width) of the square of the 128 grid shown, `art(u)` draws it."""
+    pw, box = 345, 295
+    top = 150
+    rowh = 130 + box + 40
+    rows = (len(panels) + cols - 1) // cols
+    width = 48 + cols * pw
+    body = ""
+    for i, (ptitle, text, view, art) in enumerate(panels):
+        ox = 48 + (i % cols) * pw
+        oy = top + (i // cols) * rowh
+        body += label(ox, oy, f"{i + 1}. {ptitle}", 17, weight=700, fill=LIGHT["shell"])
+        t, _ = wrap(text, ox, oy + 24, 13, 40)
+        body += t
+        by = oy + 118
+        vx, vy, vw = view
+        u = vw / box
+        body += f'<rect x="{ox}" y="{by}" width="{box}" height="{box}" fill="#ffffff" stroke="#c9d6df"/>'
+        body += f'<svg x="{ox}" y="{by}" width="{box}" height="{box}" viewBox="{vx} {vy} {vw} {vw}">{art(u)}</svg>'
+    return spec_head(width, title, sub, top + rows * rowh + 20) + body + "</svg>"
+
+
+_TILE_PATH = None
+
+
+def _tile_d():
+    return rpath(_hex_pts(64, 64, 54), 14)
+
+
+def _tile(dark=False):
+    return f'<path d="{_tile_d()}" fill="{_tile_fill(dark)}" stroke="{DARK["shell"]}" stroke-width="9" stroke-linejoin="round"/>'
+
+
+def _cube_guides(cx, cy, r, u, spokes=True, labels=True):
+    pts = _hex_pts(cx, cy, r)
+    out = _gc(cx, cy, r) + _gp(_poly_d(pts))
+    if spokes:
+        for k in (5, 1, 3):
+            out += _gl(cx, cy, pts[k][0], pts[k][1], None, 2.4)
+    names = ["T", "RT", "RB", "B", "LB", "LT"]
+    for k, (x, y) in enumerate(pts):
+        out += _gd(x, y, u)
+        if labels:
+            dx = 6 * u if x >= cx else -6 * u
+            out += _gt(x + dx, y + (-5 * u if k in (0, 1, 5) else 14 * u), names[k], u, "start" if dx > 0 else "end")
+    return out
+
+
+def steps_tile():
+    pts = _hex_pts(64, 64, 54)
+    panels = [
+        ("A circle, six points", "Draw a circle of radius 54 around the centre (64, 64). Mark six points on it, 60 degrees apart, starting at the top. This is the shell's recipe with a slightly bigger radius.", (0, 0, 128),
+         lambda u: _gc(64, 64, 54) + _gl(64, 4, 64, 124, "3 5", 1) + _gl(4, 64, 124, 64, "3 5", 1) + "".join(_gd(x, y, u) for x, y in pts) + _gt(64 + 4 * u, 8, "top", u) ),
+        ("Join them", "Join the six points into a regular hexagon with a point on top. Every side is 54 long. The corners are (64, 10), (110.8, 37), (110.8, 91), (64, 118), (17.2, 91) and (17.2, 37).", (0, 0, 128),
+         lambda u: _gp(_poly_d(pts), 2) + "".join(_gd(x, y, u) for x, y in pts)),
+        ("Mark the corner points", "At every corner measure 14 units back along each of the two sides. That gives twelve points, two per corner (A and B).", (0, 0, 128),
+         lambda u: _gp(_poly_d(pts), 1.5, dash="5 4") + "".join(_gd(x, y, u) for x, y in _ab_points(pts, 14)) + _gt(64, 8, "A and B are 14 from each corner", u, "middle")),
+        ("Round the corners", "Replace each corner with a curve from A to B that uses the corner as its control point. The six curves are joined by the straight pieces between them.", (0, 0, 128),
+         lambda u: _gp(_poly_d(pts), 1.2, dash="5 4", col=MUTED_LIGHT) + _gp(_tile_d(), 2.4) + "".join(_gd(x, y, u) for x, y in _ab_points(pts, 14))),
+        ("Give the line a width", "The rounded hexagon is the centre line. Stroke it 9 wide, with round joins, in the dark-background teal #4FD6D0: that is 4.5 each side, 49.5 to 58.5 from the centre.", (0, 0, 128),
+         lambda u: f'<path d="{_tile_d()}" fill="none" stroke="{DARK["shell"]}" stroke-width="9" stroke-linejoin="round"/>' + _gp(_tile_d(), 1.2) + _gc(64, 64, 49.5, "2 4", 1) + _gc(64, 64, 58.5, "2 4", 1)),
+        ("Fill it", "Fill the inside with Deep #08262D on light themes and #0F2F37 on dark themes. Fill and stroke are one path, so the fill reaches the middle of the line.", (0, 0, 128),
+         lambda u: _tile(False)),
+        ("Check the room inside", "Glyphs stay inside a circle of radius 36 around (64, 66). The inner area is 99 wide, so a glyph at radius 36 leaves about 13 units to the line.", (0, 0, 128),
+         lambda u: _tile(False) + _gc(64, 66, 36, "4 4", 1.6, "#FFC83D") + _gl(64, 4, 64, 124, "3 5", 1, "#FFC83D") + _gl(4, 66, 124, 66, "3 5", 1, "#FFC83D") + _gt(64 + 38 * 0.2, 66 - 38, "r 36", u, "start", 12, "#FFC83D")),
+        ("Both themes", "The same shape on both. Only the fill changes, so the tile reads on a white or on a dark editor background.", (0, 0, 128),
+         lambda u: f'<g transform="translate(2 34) scale(0.47)">{_tile(False)}</g><g transform="translate(66 34) scale(0.47)">{_tile(True)}</g>' ),
+    ]
+    return step_sheet("File icon tile: construction", "How to draw the hexagon tile, step by step. Pink: construction.", panels)
+
+
+def steps_toml():
+    r, cx, cy, rho = 28, 64, 66, 12
+    pts = _hex_pts(cx, cy, r)
+    t0, t1, t2 = tone(DARK["gold"])
+    P = {n: pts[i] for i, n in enumerate(["T", "RT", "RB", "B", "LB", "LT"])}
+    faces = lambda: poly([P["T"], P["RT"], (cx, cy), P["LT"]], t0) + poly([P["LT"], (cx, cy), P["B"], P["LB"]], t1) + poly([(cx, cy), P["RT"], P["RB"], P["B"]], t2)
+    view = (cx - 40, cy - 40, 80)
+    panels = [
+        ("A hexagon, point up", "Draw a circle of radius 28 around (64, 66) and mark six points on it, 60 degrees apart, starting at the top: T, RT, RB, B, LB, LT. Join them.", view,
+         lambda u: _cube_guides(cx, cy, r, u, spokes=False)),
+        ("Three spokes", "Join the centre to LT, RT and B. The hexagon splits into three rhombi: top, left and right.", view,
+         lambda u: _cube_guides(cx, cy, r, u)),
+        ("Fill the faces", "Top: gold #FFD15C mixed 25 % toward white. Left: gold itself. Right: gold mixed 22 % toward black. No outlines.", view,
+         lambda u: faces()),
+        ("Mark the corner points", "At each of the six corners measure 12 units back along both sides. That is 0.43 of the edge, the same ratio as the logo's cubes (7 on 16).", view,
+         lambda u: faces() + _gp(_poly_d(pts), 1.4, dash="5 4") + "".join(_gd(x, y, u) for x, y in _ab_points(pts, rho))),
+        ("Round the outline", "Draw a curve from A to B at each corner, using the corner as the control point. The result is the rounded outline.", view,
+         lambda u: _gp(_poly_d(pts), 1.2, dash="5 4", col=MUTED_LIGHT) + _gp(rpath(pts, rho), 2.4) + "".join(_gd(x, y, u) for x, y in _ab_points(pts, rho))),
+        ("Clip the faces to it", "Draw the three faces, then clip them to the rounded outline. Only the outside is rounded; the lines between faces stay straight and crisp.", view,
+         lambda u: rounded_cube(cx, cy, r, (t0, t1, t2), rho) + _gp(rpath(pts, rho), 1.2, dash="4 4")),
+        ("Put it on the tile", "Centre it on (64, 66), two units below the tile centre, like the trio in the logo. It sits inside the radius-36 circle.", (0, 0, 128),
+         lambda u: _tile(False) + rounded_cube(cx, cy, r, (t0, t1, t2), rho) + _gc(64, 66, 36, "4 4", 1.4, "#FFC83D") + _gl(64, 4, 64, 124, "3 5", 1, "#FFC83D") + _gl(4, 66, 124, 66, "3 5", 1, "#FFC83D")),
+        ("Done", "islet.toml. Light theme on the left, dark theme on the right; only the tile fill changes.", (0, 0, 128),
+         lambda u: f'<g transform="translate(2 34) scale(0.47)">{file_icon("islet-toml", False)}</g><g transform="translate(66 34) scale(0.47)">{file_icon("islet-toml", True)}</g>'),
+    ]
+    return step_sheet("File icon islet.toml: construction", "The rounded cube, step by step. Pink: construction.", panels)
+
+
+def steps_lock():
+    pal = DARK
+    cube = lambda: rounded_cube(64, 64, 27, tone(pal["gold"]), 12)
+    fill = _tile_fill(False)
+    badge_view = (68, 68, 48)
+    shackle_d = "M85.5 90V86.5a5.5 5.5 0 0 1 11 0V90"
+    badge = lambda: f'<circle cx="91" cy="92" r="17" fill="{pal["sun"]}" stroke="{fill}" stroke-width="5"/>'
+    shack = lambda: f'<path d="{shackle_d}" fill="none" stroke="{pal["ink"]}" stroke-width="3.2" stroke-linecap="round"/>'
+    body = lambda: f'<rect x="83" y="89" width="16" height="12.5" rx="3.2" fill="{pal["ink"]}"/>'
+    key = lambda: f'<circle cx="91" cy="94.2" r="2" fill="{pal["sun"]}"/><rect x="90" y="95" width="2" height="3.6" rx="1" fill="{pal["sun"]}"/>'
+    panels = [
+        ("The cube, centred", "Draw the rounded gold cube as for islet.toml, but with edge 27 and centred on the tile centre (64, 64). The badge goes on top of it, so the cube never moves.", (0, 0, 128),
+         lambda u: _tile(False) + cube() + _gl(64, 4, 64, 124, "3 5", 1) + _gl(4, 64, 124, 64, "3 5", 1) + _gd(64, 64, u) + _gt(64 + 5 * u, 64 - 5 * u, "(64, 64)", u)),
+        ("Place the badge circle", "Put a circle of radius 17 centred on (91, 92), lower right of the cube. It overlaps the cube's corner but stays inside the tile.", (0, 0, 128),
+         lambda u: _tile(False) + cube() + _gc(91, 92, 17, "4 4", 1.6) + _gd(91, 92, u) + _gt(91 - 4 * u, 92 + 32, "(91, 92) r 17", u, "middle")),
+        ("Fill and ring", "Fill it Sunburn #FF8556 and give it a 5 wide stroke in the tile colour. The stroke is the ring that cuts the badge away from the cube.", (0, 0, 128),
+         lambda u: _tile(False) + cube() + badge() + _gc(91, 92, 19.5, "2 4", 1)),
+        ("Shackle", "In the badge, draw the shackle from (85.5, 90) up 3.5, a half circle of radius 5.5 centred on (91, 86.5) and down to (96.5, 90). Stroke 3.2, round caps, Sand #FFF1C9.", badge_view,
+         lambda u: badge() + shack() + _gc(91, 86.5, 5.5, "3 3", 1.4) + "".join(_gd(x, y, u * 0.8) for x, y in ((85.5, 90), (96.5, 90), (85.5, 86.5), (96.5, 86.5), (91, 86.5)))),
+        ("Body", "Below it draw a rounded rectangle 16 wide and 12.5 tall with its top left at (83, 89) and corner radius 3.2, Sand. The legs end 1 unit inside the top of the body, so the shackle looks joined to it.", badge_view,
+         lambda u: badge() + shack() + body() + _gp("M83 89h16v12.5H83z", 1.2, dash="3 3")),
+        ("Keyhole", "In the body cut a keyhole in Sunburn: a circle of radius 2 centred on (91, 94.2) and a slot 2 wide and 3.6 tall with its top left at (90, 95).", badge_view,
+         lambda u: badge() + shack() + body() + key() + _gc(91, 94.2, 2, None, 1) ),
+        ("The finished badge", "Badge, shackle, body and keyhole together. Everything is on the 128 grid, so it scales with the tile.", badge_view,
+         lambda u: badge() + shack() + body() + key()),
+        ("Done", "islet.lock. Light theme on the left, dark theme on the right; only the tile fill (and the ring, which follows it) changes.", (0, 0, 128),
+         lambda u: f'<g transform="translate(2 34) scale(0.47)">{file_icon("islet-lock", False)}</g><g transform="translate(66 34) scale(0.47)">{file_icon("islet-lock", True)}</g>'),
+    ]
+    return step_sheet("File icon islet.lock: construction", "The rounded cube with its padlock badge, step by step. Pink: construction.", panels)
+
+
+def steps_monorepo():
+    s, cx, base = 12, 64, 66
+    pal = DARK
+    cen = lambda x, y, z: (cx + (x - y) * K * s, base + (x + y) * 0.5 * s - z * s)
+    blk = lambda x, y, z: cube(*cen(x, y, z), s * 0.88, *tone(pal["gold"]))
+    stack = lambda zs: "".join(blk(x, y, z) for _, x, y, z in sorted((x + y + z, x, y, z) for z in zs for x in range(3) for y in range(3)))
+    view = (cx - 40, base - 40, 80)
+    c0 = cen(0, 0, 0)
+    panels = [
+        ("One block", "Start with one cube, edge 12, as on the cube sheet: a hexagon of radius 12 split into three faces. Its centre is (64, 66).", (cx - 20, base - 20, 40),
+         lambda u: cube(cx, base, s, *tone(pal["gold"])) + _cube_guides(cx, base, s, u, spokes=True, labels=False)),
+        ("Leave a gap", "Draw the block at 0.88 of its size, an edge of 10.56. The thin ring of tile colour left around it becomes the gap between neighbours.", (cx - 20, base - 20, 40),
+         lambda u: cube(cx, base, s * 0.88, *tone(pal["gold"])) + _gp(_poly_d(_hex_pts(cx, base, s)), 1.4, dash="4 3")),
+        ("Three steps", "Moving one block along x goes 10.39 right and 6 down. Along y it goes 10.39 left and 6 down. Along z it goes 12 up. Draw these three steps from block (0, 0, 0).", (cx - 30, base - 30, 60),
+         lambda u: blk(0, 0, 0) + blk(1, 0, 0) + blk(0, 1, 0) + blk(0, 0, 1) + "".join(_gl(c0[0], c0[1], c0[0] + dx, c0[1] + dy, None, 2.4, "#0b7a3b") + _gt(c0[0] + dx * 1.35, c0[1] + dy * 1.35 + 2 * u, n, u, "middle", 14, "#0b7a3b") for dx, dy, n in ((K * s, 0.5 * s, "+x"), (-K * s, 0.5 * s, "+y"), (0, -s, "+z")))),
+        ("One layer", "Nine blocks, x and y from 0 to 2, at z = 0. Draw them back to front: the ones with the smallest x + y first.", (cx - 40, base - 16, 80),
+         lambda u: stack([0])),
+        ("Two layers", "Add a second layer at z = 1: the same nine positions, 12 higher.", (cx - 40, base - 26, 80),
+         lambda u: stack([0, 1])),
+        ("Three layers", "A third layer at z = 2 completes the 3 x 3 x 3 cube of 27 blocks. Draw order overall: sort by x + y + z, lowest first, so nearer blocks cover farther ones.", (cx - 40, base - 42, 80),
+         lambda u: stack([0, 1, 2]) + _gp(_poly_d(_hex_pts(cx, base, 3 * s)), 1.4, dash="4 4")),
+        ("Put it on the tile", "The whole cube is a hexagon of radius 36 (3 blocks), centred on (64, 66), the same space as the single cube on the other two icons.", (0, 0, 128),
+         lambda u: _tile(False) + stack([0, 1, 2]) + _gc(64, 66, 36, "4 4", 1.4, "#FFC83D")),
+        ("Done", "monorepo.toml. Light theme on the left, dark theme on the right; only the tile fill changes.", (0, 0, 128),
+         lambda u: f'<g transform="translate(2 34) scale(0.47)">{file_icon("monorepo-toml", False)}</g><g transform="translate(66 34) scale(0.47)">{file_icon("monorepo-toml", True)}</g>'),
+    ]
+    return step_sheet("File icon monorepo.toml: construction", "The block cube, step by step. Pink: construction; green arrows: one step along each axis.", panels)
+
+
 def specs():
-    return {"spec/mark-construction.svg": spec_construction(), "spec/icon-construction.svg": spec_icon(), "spec/lockup-clear-space.svg": spec_lockup(), "spec/cube-construction.svg": spec_cube(), "spec/shell-construction.svg": spec_shell(), "spec/file-icon-tile.svg": spec_file_tile(), "spec/file-icon-toml.svg": spec_file_toml(), "spec/file-icon-lock.svg": spec_file_lock(), "spec/file-icon-monorepo.svg": spec_file_monorepo()}
+    return {"spec/mark-construction.svg": spec_construction(), "spec/icon-construction.svg": spec_icon(), "spec/lockup-clear-space.svg": spec_lockup(), "spec/cube-construction.svg": spec_cube(), "spec/shell-construction.svg": spec_shell(), "spec/file-icon-tile.svg": spec_file_tile(), "spec/file-icon-toml.svg": spec_file_toml(), "spec/file-icon-lock.svg": spec_file_lock(), "spec/file-icon-monorepo.svg": spec_file_monorepo(), "spec/file-icon-tile-steps.svg": steps_tile(), "spec/file-icon-toml-steps.svg": steps_toml(), "spec/file-icon-lock-steps.svg": steps_lock(), "spec/file-icon-monorepo-steps.svg": steps_monorepo()}
 
 
 # ---------------------------------------------------------------- main
