@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="brand/logo/islet-horizontal-dark.svg">
+    <img alt="islet" src="brand/logo/islet-horizontal.svg" width="320">
+  </picture>
+</p>
+
 # Islet
 
 The package manager for [Pelago](https://github.com/pelagolang/pelago). The command is `islet`.
@@ -23,7 +30,8 @@ and [docs/plan.md](docs/plan.md) for the milestones.
 
 - `schema/`: JSON Schemas for `islet.toml` (and later `islet.lock`). Published from the website repo to
   <https://pelagolang.github.io/website/schema/>; the tool embeds the same files.
-- `docs/`: design and plan.
+- `docs/`: design and plan; [`docs/brand.md`](docs/brand.md) is the brand record.
+- `brand/`: logo, icons, file icons and social images, with the script that builds them.
 
 ## License
 
