@@ -83,8 +83,8 @@ fn first8(w: [u32; 16]) -> [u32; 8] {
 
 fn words(bytes: &[u8; BLOCK_LEN]) -> [u32; 16] {
     let mut w = [0u32; 16];
-    for (i, c) in bytes.chunks_exact(4).enumerate() {
-        w[i] = u32::from_le_bytes([c[0], c[1], c[2], c[3]]);
+    for (i, c) in bytes.as_chunks::<4>().0.iter().enumerate() {
+        w[i] = u32::from_le_bytes(*c);
     }
     w
 }
