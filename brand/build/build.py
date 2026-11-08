@@ -203,6 +203,31 @@ FILES = (  # file name, what it holds
 )
 
 
+def rounded_cube(cx, cy, r, tones, rho):
+    """One cube with its outer outline rounded (clipped), like the trio in the mark."""
+    _uid[0] += 1
+    cid = f"islet-rc-{_uid[0]}"
+    pts = [(cx + r * math.cos(math.radians(-90 + 60 * k)), cy + r * math.sin(math.radians(-90 + 60 * k))) for k in range(6)]
+    return f'<clipPath id="{cid}"><path d="{rpath(pts, rho)}"/></clipPath><g clip-path="url(#{cid})">' + cube(cx, cy, r, *tones) + "</g>"
+
+
+# The dissolving cube: 3 x 3 x 3 small cubes, with the top right corner coming apart. REMOVED lists the
+# blocks (x, y, z) that have already gone; DRIFT are loose blocks floating away (x, y, edge, colour).
+REMOVED = {(2, 0, 2), (1, 0, 2), (2, 1, 2), (2, 0, 1), (2, 0, 0)}
+DRIFT = ((88, 33, 5.5, "sun"), (80, 22, 4, "green"), (95, 47, 4, "gold"))
+
+
+def dissolving_cube(pal, s=12, cx=62, base=70):
+    """A cube made of 27 small cubes that comes apart block by block towards the top right."""
+    voxels = [(x + y + z, x, y, z) for x in range(3) for y in range(3) for z in range(3) if (x, y, z) not in REMOVED]
+    out = ""
+    for _, x, y, z in sorted(voxels):
+        out += cube(cx + (x - y) * K * s, base + (x + y) * 0.5 * s - z * s, s * 0.88, *tone(pal["gold"]))
+    for (x, y, e, c) in DRIFT:
+        out += cube(x, y, e, *tone(pal[c]))
+    return out
+
+
 def file_icon(name, dark):
     """A rounded hexagon tile (the shell) with the cubes inside. No page outline: the shape is Islet's own."""
     pal = DARK  # the cubes always use the bright palette; the tile changes with the theme
@@ -212,23 +237,17 @@ def file_icon(name, dark):
         f'fill="{fill}" stroke="{pal["shell"]}" stroke-width="9" stroke-linejoin="round"/>'
     )
     if name == "islet-toml":
-        glyph = cube(64, 66, 27, *tone(pal["gold"]))
+        glyph = rounded_cube(64, 66, 28, tone(pal["gold"]), 12)
     elif name == "islet-lock":
-        keyhole = f'<circle cx="64" cy="71" r="5.5" fill="{fill}"/><rect x="61.5" y="73" width="5" height="11" rx="2.5" fill="{fill}"/>'
         glyph = (
-            f'<path d="M50 60V47a14 14 0 0 1 28 0V60" fill="none" stroke="{pal["ink"]}" stroke-width="8" stroke-linecap="round"/>'
-            f'<rect x="40" y="58" width="48" height="38" rx="8" fill="{pal["sun"]}"/>' + keyhole
+            rounded_cube(58, 62, 24, tone(pal["gold"]), 10)
+            + f'<circle cx="86" cy="88" r="19" fill="{pal["sun"]}" stroke="{fill}" stroke-width="5"/>'
+            + f'<path d="M79.5 86V82a6.5 6.5 0 0 1 13 0V86" fill="none" stroke="{pal["ink"]}" stroke-width="3.6" stroke-linecap="round"/>'
+            + f'<rect x="77" y="85" width="18" height="14" rx="3.5" fill="{pal["ink"]}"/>'
+            + f'<circle cx="86" cy="91" r="2.2" fill="{pal["sun"]}"/><rect x="85" y="92" width="2" height="4" rx="1" fill="{pal["sun"]}"/>'
         )
     else:
-        r = 12.5
-        parts = []
-        rows = ((pal["gold"], 1), (pal["sun"], 2), (pal["green"], 3))
-        y0 = 47.25
-        for i, (colour, n) in enumerate(rows):
-            for j in range(n):
-                cx = 64 + (j - (n - 1) / 2) * 2 * K * r
-                parts.append(cube(cx, y0 + i * 1.5 * r, r, *tone(colour)))
-        glyph = "".join(parts)
+        glyph = dissolving_cube(pal)
     return tile + glyph
 
 
