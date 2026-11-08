@@ -1,7 +1,10 @@
 //! Islet, the package manager for Pelago. Stage 0, card I-1: the store.
 
 mod blake3;
+mod lock;
+mod manifest;
 mod store;
+mod toml;
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -16,9 +19,67 @@ usage:
   islet store verify [<hash>]      recompute the hash of one tree, or of every tree
   islet store link <hash> <dest>   link a stored tree at <dest> (symlink; junction on Windows)
   islet hash <dir>                 print a folder's hash without storing it
+  islet check <file-or-dir>        check islet.toml, monorepo.toml and islet.lock, with line numbers
+  islet lock fmt <file>            rewrite an islet.lock in its canonical form
 
 The store is the folder named by ISLET_STORE if set; otherwise `.islet` at the drive root on Windows
 and `~/.islet` elsewhere.";
+
+/// Check one file by its name. Returns the diagnostics as text; empty means the file is fine.
+fn check_file(path: &Path) -> Result<String, String> {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let shown = path.display().to_string();
+    let src = std::fs::read_to_string(path).map_err(|e| format!("{shown}: {e}"))?;
+    match name {
+        "islet.toml" => {
+            let m = manifest::parse_manifest(&shown, &src).map_err(|d| d.to_string())?;
+            let mut note = String::new();
+            if m.dependencies
+                .iter()
+                .any(|d| d.spec == manifest::DepSpec::FromMonorepo)
+            {
+                let root = find_monorepo(path).ok_or_else(|| {
+                    let d = m.dependencies.iter().find(|d| d.spec == manifest::DepSpec::FromMonorepo).expect("checked above");
+                    toml::Diag::new(&shown, &src, toml::PErr::new(d.at, "uses `from = \"monorepo\"` but no monorepo.toml was found above this file")).to_string()
+                })?;
+                let rsrc = std::fs::read_to_string(&root)
+                    .map_err(|e| format!("{}: {e}", root.display()))?;
+                let r = manifest::parse_monorepo(&root.display().to_string(), &rsrc)
+                    .map_err(|d| d.to_string())?;
+                manifest::resolve(&m, &r).map_err(|(at, msg)| {
+                    toml::Diag::new(&shown, &src, toml::PErr::new(at, msg)).to_string()
+                })?;
+                note = format!(" (shared requirements from {})", root.display());
+            }
+            Ok(format!("ok {shown}{note}"))
+        }
+        "monorepo.toml" => {
+            manifest::parse_monorepo(&shown, &src).map_err(|d| d.to_string())?;
+            Ok(format!("ok {shown}"))
+        }
+        "islet.lock" => {
+            let l = lock::parse_lock(&shown, &src).map_err(|d| d.to_string())?;
+            if l.to_text() != src {
+                return Err(format!(
+                    "{shown}: not in canonical form; run `islet lock fmt {shown}`"
+                ));
+            }
+            Ok(format!("ok {shown}"))
+        }
+        _ => Err(format!(
+            "{shown}: not an islet.toml, monorepo.toml or islet.lock"
+        )),
+    }
+}
+
+/// The nearest monorepo.toml in a parent folder of `file`.
+fn find_monorepo(file: &Path) -> Option<std::path::PathBuf> {
+    let abs = std::fs::canonicalize(file).ok()?;
+    abs.ancestors()
+        .skip(1)
+        .map(|d| d.join("monorepo.toml"))
+        .find(|p| p.is_file())
+}
 
 fn run(args: &[String]) -> Result<(), String> {
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -29,6 +90,48 @@ fn run(args: &[String]) -> Result<(), String> {
                 "{}",
                 store::tree_hash(Path::new(dir)).map_err(|e| e.to_string())?
             );
+            Ok(())
+        }
+        ["check", target] => {
+            let p = Path::new(target);
+            let files: Vec<std::path::PathBuf> = if p.is_dir() {
+                ["islet.toml", "monorepo.toml", "islet.lock"]
+                    .iter()
+                    .map(|n| p.join(n))
+                    .filter(|f| f.is_file())
+                    .collect()
+            } else {
+                vec![p.to_path_buf()]
+            };
+            if files.is_empty() {
+                return Err(format!(
+                    "{target}: no islet.toml, monorepo.toml or islet.lock here"
+                ));
+            }
+            let mut failed = Vec::new();
+            for f in &files {
+                match check_file(f) {
+                    Ok(line) => println!("{line}"),
+                    Err(e) => failed.push(e),
+                }
+            }
+            if failed.is_empty() {
+                Ok(())
+            } else {
+                Err(failed.join("\n"))
+            }
+        }
+        ["lock", "fmt", file] => {
+            let src = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
+            let text = lock::parse_lock(file, &src)
+                .map_err(|d| d.to_string())?
+                .to_text();
+            if text != src {
+                std::fs::write(file, text).map_err(|e| format!("{file}: {e}"))?;
+                println!("rewrote {file}");
+            } else {
+                println!("already canonical {file}");
+            }
             Ok(())
         }
         ["store", "put", dir] => {
