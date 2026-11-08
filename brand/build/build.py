@@ -196,35 +196,37 @@ def icons():
 
 # ---------------------------------------------------------------- file icons
 
-PAGE = "M26 8h52l26 26v86H26z"
-FILES = (  # file, label key, band colour name, label colour on light, on dark
-    ("islet-toml", "toml", "shell"),
-    ("islet-lock", "lock", "gold"),
-    ("monorepo-toml", "mono", "green"),
+FILES = (  # file name, what it holds
+    ("islet-toml", "one cube: a package"),
+    ("islet-lock", "a cube with a shackle: locked"),
+    ("monorepo-toml", "three cubes: many packages"),
 )
 
 
-def file_icon(label, band, dark):
-    pal = DARK if dark else LIGHT
-    page = "#0F2F37" if dark else WHITE
-    stroke = pal["shell"]
-    fill = pal[band]
-    text_colour = DEEP if (dark or band == "gold") else WHITE
-    text, adv = text_path(label, text_colour, 0, 113, 25)
-    text = text.replace("translate(0.00 113.00)", f"translate({65 - adv / 2:.2f} 113.00)")
-    return (
-        f'<path d="{PAGE}" fill="{page}" stroke="{stroke}" stroke-width="7" stroke-linejoin="round"/>'
-        f'<path d="M78 8v26h26" fill="{stroke}" opacity="0.35"/>'
-        f'<g transform="translate(36 18) scale(0.48)">{mark_body(pal)}</g>'
-        f'<rect x="26" y="88" width="78" height="32" fill="{fill}"/>' + text
+def file_icon(name, dark):
+    """A rounded hexagon tile (the shell) with the cubes inside. No page outline: the shape is Islet's own."""
+    pal = DARK  # the cubes always use the bright palette; the tile changes with the theme
+    fill = "#0F2F37" if dark else DEEP
+    tile = (
+        f'<path d="{rpath([(64 + 54 * math.cos(math.radians(-90 + 60 * k)), 64 + 54 * math.sin(math.radians(-90 + 60 * k))) for k in range(6)], 14)}" '
+        f'fill="{fill}" stroke="{pal["shell"]}" stroke-width="9" stroke-linejoin="round"/>'
     )
+    if name == "islet-toml":
+        glyph = cube(64, 66, 27, *tone(pal["gold"]))
+    elif name == "islet-lock":
+        shackle = (f'<path d="M55 62V44a9 9 0 0 1 18 0V62" fill="none" stroke="{pal["ink"]}" stroke-width="7" '
+                   'stroke-linecap="round" stroke-linejoin="round"/>')
+        glyph = shackle + cube(64, 78, 22, *tone(pal["sun"]))
+    else:
+        glyph = f'<g transform="translate(64 66) scale(1.3) translate(-64 -66)">{trio((tone(pal["gold"]), tone(pal["sun"]), tone(pal["green"])))}</g>'
+    return tile + glyph
 
 
 def file_icons():
     out = {}
     for dark, suf in ((False, ""), (True, "-dark")):
-        for name, label, band in FILES:
-            out[f"editor/file-icons/{name}{suf}.svg"] = SVG_OPEN % "0 0 128 128" + file_icon(label, band, dark) + "</svg>"
+        for name, _ in FILES:
+            out[f"editor/file-icons/{name}{suf}.svg"] = SVG_OPEN % "0 0 128 128" + file_icon(name, dark) + "</svg>"
     return out
 
 
@@ -601,8 +603,149 @@ def spec_lockup():
     return spec_head(int(px(width_u) + x * k + 140), "Lockup, clear space and minimum size", "Keep x clear on every side. Pink: artwork bounds. Dashed teal: clear space.", int(y + 190)) + body + "</svg>"
 
 
+def spec_cube():
+    """How to draw the cube, step by step, then how the trio is put together and rounded."""
+    r = 16
+    S = 6.5
+    pw, ph = 330, 330
+    steps = []
+
+    def panel(i, title, text, art, ox, y=150):
+        out = label(ox, y, f"{i}. {title}", 17, weight=700, fill=LIGHT["shell"])
+        t, _ = wrap(text, ox, y + 24, 13, 38)
+        return out + t + art
+
+    def pts_of(cx, cy, rr):
+        return {"T": (cx, cy - rr), "RT": (cx + K * rr, cy - rr / 2), "RB": (cx + K * rr, cy + rr / 2), "B": (cx, cy + rr),
+                "LB": (cx - K * rr, cy + rr / 2), "LT": (cx - K * rr, cy - rr / 2), "C": (cx, cy)}
+
+    def px(cx, cy, d):  # a unit-space point to pixels around the panel centre
+        return (cx + d[0] * S, cy + d[1] * S)
+
+    def hexpts(cx, cy, rr):
+        P = pts_of(cx, cy, rr)
+        return [P["T"], P["RT"], P["RB"], P["B"], P["LB"], P["LT"]]
+
+    def path(ptlist, fill="none", stroke=GUIDE, w=1.6):
+        d = "M" + "L".join(f"{x:.1f} {y:.1f}" for x, y in ptlist) + "Z"
+        return f'<path d="{d}" fill="{fill}" stroke="{stroke}" stroke-width="{w}" stroke-linejoin="round"/>'
+
+    def dot(p, name, dx=8, dy=-8, anchor="start"):
+        return f'<circle cx="{p[0]:.1f}" cy="{p[1]:.1f}" r="3.5" fill="{GUIDE}"/>' + label(p[0] + dx, p[1] + dy, name, 12, anchor, GUIDE, 700)
+
+    width = 1650
+    colx = [48 + i * 320 for i in range(5)]
+    cy0 = 470
+    body = ""
+    # 1: the circle and the hexagon
+    cx = colx[0] + 140
+    P = pts_of(cx, cy0, r * S)
+    body += f'<circle cx="{cx}" cy="{cy0}" r="{r * S}" fill="none" stroke="{GUIDE}" stroke-width="1.2" stroke-dasharray="4 4"/>'
+    body += path(hexpts(cx, cy0, r * S)) + dot(P["T"], "T", 10, -8) + dot(P["RT"], "RT", 10, -6) + dot(P["RB"], "RB", 10, 16) + dot(P["B"], "B", 10, 18) + dot(P["LB"], "LB", -10, 16, "end") + dot(P["LT"], "LT", -10, -6, "end")
+    body += line(cx, cy0 - r * S - 14, cx, cy0 + r * S + 14, GUIDE, 1, "3 5")
+    body += dim(cx + K * r * S + 40, cy0 - r * S, cx + K * r * S + 40, cy0 + r * S, "2r", 1, 12)
+    body = panel(1, "A hexagon, point up", "Draw a circle of radius r (the cube edge). Mark six points on it, 60 degrees apart, starting at the top: T, RT, RB, B, LB, LT. Join them. This is the cube's outline.", "", colx[0]) + body
+    # 2: spokes
+    cx = colx[1] + 140
+    P = pts_of(cx, cy0, r * S)
+    art = path(hexpts(cx, cy0, r * S), stroke=MUTED_LIGHT, w=1.2)
+    for k in ("LT", "RT", "B"):
+        art += line(*P["C"], *P[k], GUIDE, 2.2)
+    art += dot(P["C"], "C (centre)", 12, 22)
+    art += label(cx, cy0 + r * S + 48, "three spokes: C to LT, RT and B", 12, "middle", GUIDE, 600)
+    body += panel(2, "Three spokes from the centre", "Put a point C in the middle and draw lines from it to LT, RT and B. The hexagon is now split into three rhombi: top, left and right. Each has two sides of length r.", art, colx[1])
+    # 3: faces
+    cx = colx[2] + 140
+    P = pts_of(cx, cy0, r * S)
+    t0, t1, t2 = tone(LIGHT["gold"])
+    art = poly([P["T"], P["RT"], P["C"], P["LT"]], t0) + poly([P["LT"], P["C"], P["B"], P["LB"]], t1) + poly([P["C"], P["RT"], P["RB"], P["B"]], t2)
+    art += label(cx, cy0 - r * S * 0.55, "top", 13, "middle", INK, 700) + label(cx - 36, cy0 + 34, "left", 13, "middle", INK, 700) + label(cx + 38, cy0 + 34, "right", 13, "middle", INK, 700)
+    art += label(cx, cy0 + r * S + 48, "no outlines: faces only", 12, "middle", GUIDE, 600)
+    body += panel(3, "Fill the three faces", "Top face: the colour mixed 25 % toward white. Left face: the colour itself. Right face: the colour mixed 22 % toward black. Light comes from the top left, and there are no outlines.", art, colx[2])
+    # 4: coordinates table
+    ox = colx[3]
+    rows = [("T", "0, -r"), ("RT", "0.866 r, -0.5 r"), ("RB", "0.866 r, 0.5 r"), ("B", "0, r"), ("LB", "-0.866 r, 0.5 r"), ("LT", "-0.866 r, -0.5 r"), ("C", "0, 0")]
+    art = ""
+    for i, (n, v) in enumerate(rows):
+        yy = 250 + i * 34
+        art += label(ox, yy, n, 14, weight=700, fill=GUIDE) + label(ox + 50, yy, f"({v})", 14, fill=INK)
+    art += label(ox, 250 + 7 * 34 + 10, "Origin at C, x to the right, y down.", 12, fill=MUTED_LIGHT)
+    art += label(ox, 250 + 7 * 34 + 30, "0.866 is the square root of 3, over 2.", 12, fill=MUTED_LIGHT)
+    art += label(ox, 250 + 7 * 34 + 50, "Faces: top T-RT-C-LT, left LT-C-B-LB,", 12, fill=MUTED_LIGHT)
+    art += label(ox, 250 + 7 * 34 + 68, "right C-RT-RB-B.", 12, fill=MUTED_LIGHT)
+    body += label(ox, 150, "4. The numbers", 17, weight=700, fill=LIGHT["shell"])
+    t, _ = wrap("The same drawing as coordinates, for any cube of edge r. In the mark r = 16, so a cube is 27.7 units wide and 32 tall.", ox, 174, 13, 38)
+    body += t + art
+    # 5: the finished cube at three sizes
+    ox = colx[4]
+    body += label(ox, 150, "5. Check it", 17, weight=700, fill=LIGHT["shell"])
+    t, _ = wrap("The finished cube at the sizes the mark uses. The three rhombi must meet at one point with equal angles, and all six outer edges must be the same length.", ox, 174, 13, 38)
+    body += t
+    for i, rr in enumerate((46, 28, 16)):
+        cxx = ox + 70 + i * 0 + (0 if i == 0 else 0)
+    body += f'<g transform="translate({ox + 70} {cy0})">{cube(0, 0, 70, t0, t1, t2)}</g>'
+    body += f'<g transform="translate({ox + 70 + 130} {cy0 + 40})">{cube(0, 0, 30, t0, t1, t2)}</g>'
+    body += f'<g transform="translate({ox + 70 + 130} {cy0 - 60})">{cube(0, 0, 14, t0, t1, t2)}</g>'
+    body += label(ox + 70, cy0 + 100, "r 70", 12, "middle", MUTED_LIGHT) + label(ox + 200, cy0 + 90, "r 30", 12, "middle", MUTED_LIGHT) + label(ox + 200, cy0 - 36, "r 14", 12, "middle", MUTED_LIGHT)
+    # second row: the trio
+    y2 = 760
+    body += label(48, y2 - 60, "Putting three cubes together", 22, weight=700, fill=INK)
+    S2 = 3.2
+    cx = 48 + 150
+    cyy = y2 + 250
+    c0 = (cx, cyy - 0.75 * r * S2)
+    cbl = (cx - K * r * S2, cyy + 0.75 * r * S2)
+    cbr = (cx + K * r * S2, cyy + 0.75 * r * S2)
+    art = ""
+    for c, tn in ((c0, tone(LIGHT["gold"])), (cbl, tone(LIGHT["sun"])), (cbr, tone(LIGHT["green"]))):
+        art += cube(*c, r * S2, *tn)
+    for c in (c0, cbl, cbr):
+        art += path(hexpts(*c, r * S2), stroke=GUIDE, w=1.2) + f'<circle cx="{c[0]:.1f}" cy="{c[1]:.1f}" r="3.5" fill="{GUIDE}"/>'
+    art += dim(cbl[0], cbl[1] + r * S2 + 40, cbr[0], cbr[1] + r * S2 + 40, "2 x 0.866 r", 1, 12)
+    art += dim(cbr[0] + K * r * S2 + 40, c0[1], cbr[0] + K * r * S2 + 40, cbr[1], "1.5 r", 1, 12)
+    body += panel("6", "Place three cubes edge to edge", "Cube 1 on top, cube 2 bottom left, cube 3 bottom right, all the same r. The bottom two sit 0.866 r either side of the centre line and 1.5 r below the top cube, so each shares an edge with the other two.", art, 48, y2 - 20)
+    # outline and rounding
+    ox = 48 + 330
+    cx2 = ox + 150
+    c0b = (cx2, cyy - 0.75 * r * S2); cblb = (cx2 - K * r * S2, cyy + 0.75 * r * S2); cbrb = (cx2 + K * r * S2, cyy + 0.75 * r * S2)
+
+    def vv(c, i):
+        a = math.radians(-90 + 60 * i)
+        return (c[0] + r * S2 * math.cos(a), c[1] + r * S2 * math.sin(a))
+
+    outline = [vv(c0b, 0), vv(c0b, 1), vv(cbrb, 0), vv(cbrb, 1), vv(cbrb, 2), vv(cbrb, 3), vv(cbrb, 4), vv(cblb, 3), vv(cblb, 4), vv(cblb, 5), vv(cblb, 0), vv(c0b, 5)]
+    art2 = f'<path d="{rpath(outline, 0.01)}" fill="none" stroke="{GUIDE}" stroke-width="2"/>'
+    for i, pt in enumerate(outline):
+        art2 += f'<circle cx="{pt[0]:.1f}" cy="{pt[1]:.1f}" r="3.5" fill="{GUIDE}"/>'
+    body += panel("7", "Trace the outline", "Walk round the outside of the group: 12 corners. The notches where two cubes meet are the concave corners; the six tips are the convex ones.", art2, ox, y2 - 20)
+    ox += 330
+    cx3 = ox + 150
+    shift = cx3 - cx2
+    pp = [(x + shift, y) for x, y in outline]
+    art3 = f'<path d="{rpath(pp, TRIO_RHO * S2)}" fill="{LIGHT["shell"]}" fill-opacity=".18" stroke="{GUIDE}" stroke-width="2"/>'
+    for (x, y), (x2, y2_) in zip(pp, pp[1:] + pp[:1]):
+        pass
+    art3 += label(cx3, cyy + r * S2 * 2 + 30, f"corner radius {TRIO_RHO} units", 12, "middle", GUIDE, 600)
+    body += panel("8", "Round the outer corners", "Replace each of the 12 corners with a curve that starts 7 units before the corner and ends 7 units after it, with the corner as the control point (a quadratic curve).", art3, ox, y2 - 20)
+    ox += 330
+    cx4 = ox + 150
+    sh = cx4 - cx2
+    clip_id = "spec-trio-clip"
+    ppp = [(x + sh, y) for x, y in outline]
+    art4 = f'<clipPath id="{clip_id}"><path d="{rpath(ppp, TRIO_RHO * S2)}"/></clipPath><g clip-path="url(#{clip_id})">'
+    for c, tn in ((c0b, tone(LIGHT["gold"])), (cblb, tone(LIGHT["sun"])), (cbrb, tone(LIGHT["green"]))):
+        art4 += cube(c[0] + sh, c[1], r * S2, *tn)
+    art4 += "</g>"
+    body += panel("9", "Clip the cubes to it", "Draw the three cubes, then clip them to the rounded outline. Only the outside is rounded; the edges where cubes meet stay crisp. Then put the whole group inside the shell (spec: mark construction).", art4, ox, y2 - 20)
+    ox += 330
+    cx5 = ox + 150
+    art5 = f'<svg x="{ox}" y="{y2 + 90}" width="300" height="300" viewBox="0 0 128 128">{mark_body(LIGHT)}</svg>'
+    body += label(ox, y2 - 20, "Done: the mark", 17, weight=700, fill=LIGHT["shell"]) + art5
+    return spec_head(width, "Cube construction", "How to draw one cube, then the group of three. Pink: construction. Unit r is the cube edge (16 in the mark).", 1180) + body + "</svg>"
+
+
 def specs():
-    return {"spec/mark-construction.svg": spec_construction(), "spec/icon-construction.svg": spec_icon(), "spec/lockup-clear-space.svg": spec_lockup()}
+    return {"spec/mark-construction.svg": spec_construction(), "spec/icon-construction.svg": spec_icon(), "spec/lockup-clear-space.svg": spec_lockup(), "spec/cube-construction.svg": spec_cube()}
 
 
 # ---------------------------------------------------------------- main
