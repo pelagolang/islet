@@ -7,7 +7,7 @@ Each card has a one-line "done when". Order is strict: take from the top.
 | Card | What | Done when |
 |---|---|---|
 | I-0 | Repo setup: README, licences, PR template, CI, schema, design record. | Merged. |
-| I-1 | Store and hashing. BLAKE3, per-volume `.islet` layout, put and get by hash, link into a project (symlink, junction on Windows), `islet store` info and verify. No network. | A directory of source can be stored, linked and verified on Linux and Windows CI. |
+| I-1 | Store and hashing (in progress, PR claude/feat/store). BLAKE3, per-volume `.islet` layout, put and get by hash, link into a project (symlink, junction on Windows), `islet store` info and verify. No network. | A directory of source can be stored, linked and verified on Linux and Windows CI. |
 | I-2 | Manifest and lock. A TOML reader, `islet.toml` checked against the schema with line-numbered errors, the canonical `islet.lock` writer, `{ from = "..." }` references. | Round-trip: parse, write, parse gives identical bytes; bad files give clear errors. |
 | I-3 | Resolution and compiler hook. Minimal version selection over local and path sources, workspaces, major paths, `islet add`, `remove`, `tree`. Agree with the compiler how a build finds linked packages (extend `package.rs`). | `pelago build` compiles a project with two linked dependencies, including two majors of one package. |
 | I-4 | Registry design record (a design doc and the owner's answers) before any code: log, signing, index growth, search. | Doc merged with the owner's decisions recorded. |
