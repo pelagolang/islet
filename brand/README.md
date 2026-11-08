@@ -25,7 +25,7 @@ The outlined letters come from `build/wordmark.json`. To change the wordmark, a 
 <svg width="32" height="32"><use href="sprite.svg#islet-icon"/></svg>
 ```
 
-Symbol ids are the file names without the extension: `islet-mark`, `islet-horizontal-dark`, `islet-icon`, `islet-toml`, `islet-lock-dark`, and so on.
+Symbol ids are the file names without the extension: `islet-mark`, `islet-horizontal-dark`, `islet-icon`, `islet-yaml`, `islet-lock-dark`, and so on.
 
 ## Layout
 
@@ -33,8 +33,8 @@ Symbol ids are the file names without the extension: `islet-mark`, `islet-horizo
 |---|---|
 | `logo/` | `islet-mark`, `islet-horizontal`, `islet-stacked`, each as colour (`.svg`, for light backgrounds), `-dark` (for dark backgrounds), `-black` and `-white` (one colour). PNGs on a transparent background: mark 1024, horizontal 2000 wide, stacked 1200 wide. |
 | `icon/` | App icon `islet-icon.svg` (dark tile) and `islet-icon-light.svg` (sand tile); PNG ladder 16 to 1024; `sprite.svg`; `favicon.svg`, `favicon.ico` (16, 32, 48), `islet.ico` (16 to 256), `islet.icns` (16 to 1024); `apple-touch-icon-180.png`, `android-chrome-192.png`, `android-chrome-512.png`, `maskable-512.png`, `mstile-150.png`; round avatars `avatar-512.png` and `avatar-light-512.png`. |
-| `editor/` | `vscode-icon-256.png` and `file-icons/`: icons for `islet.toml`, `islet.lock` and `monorepo.toml`, each with a `-dark` variant for dark themes, as SVG and 128px PNG. |
-| `spec/` | Spec sheets: mark construction on the 128 grid, how to draw the cube and the trio step by step (`cube-construction`), the hexagon shell step by step (`shell-construction`), the file icons, one overview sheet and one step-by-step sheet each (`file-icon-tile`, `file-icon-toml`, `file-icon-lock`, `file-icon-monorepo` and the `-steps` versions), app icon corner radius and safe areas, lockup clear space and minimum sizes. Generated, with Outfit embedded. |
+| `editor/` | `vscode-icon-256.png` and `file-icons/`: icons for `islet.yaml`, `islet.lock` and `monorepo.yaml`, each with a `-dark` variant for dark themes, as SVG and 128px PNG. |
+| `spec/` | Spec sheets: mark construction on the 128 grid, how to draw the cube and the trio step by step (`cube-construction`), the hexagon shell step by step (`shell-construction`), the file icons, one overview sheet and one step-by-step sheet each (`file-icon-tile`, `file-icon-yaml`, `file-icon-lock`, `file-icon-monorepo` and the `-steps` versions), app icon corner radius and safe areas, lockup clear space and minimum sizes. Generated, with Outfit embedded. |
 | `fonts/` | Outfit (variable font) and its SIL OFL licence. Embedded in the spec sheets; the logo outlines do not need it. |
 | `previews/` | Exploration boards from the design process (round 9 to the palette). Not generated. |
 | `social/` | `github-social-1280x640.png`, `og-1200x630.png`, `x-header-1500x500.png`, `linkedin-1584x396.png`, `readme-banner-1280x320.png`. |

@@ -26,9 +26,6 @@ OUTFIT = HERE.parent / "fonts" / "Outfit-VariableFont_wght.ttf"
 DESCRIPTOR = "The package manager for Pelago."
 RUNS = {  # key: (weight, text)
     "islet": (700, "islet"),
-    "toml": (700, "toml"),
-    "lock": (700, "lock"),
-    "mono": (700, "mono"),
     "descriptor": (400, DESCRIPTOR),
 }
 
