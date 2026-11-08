@@ -71,7 +71,7 @@ fn check_file(path: &Path) -> Result<String, String> {
         }
         "islet.lock" => {
             let l = lock::parse_lock(&shown, &src).map_err(|d| d.to_string())?;
-            if l.to_text() != src {
+            if !lock::is_canonical(&l, &src) {
                 return Err(format!(
                     "{shown}: not in canonical form; run `islet lock fmt {shown}`"
                 ));
@@ -135,11 +135,9 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         ["lock", "fmt", file] => {
             let src = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
-            let text = lock::parse_lock(file, &src)
-                .map_err(|d| d.to_string())?
-                .to_text();
-            if text != src {
-                std::fs::write(file, text).map_err(|e| format!("{file}: {e}"))?;
+            let parsed = lock::parse_lock(file, &src).map_err(|d| d.to_string())?;
+            if !lock::is_canonical(&parsed, &src) {
+                std::fs::write(file, parsed.to_text()).map_err(|e| format!("{file}: {e}"))?;
                 println!("rewrote {file}");
             } else {
                 println!("already canonical {file}");

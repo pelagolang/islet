@@ -174,6 +174,12 @@ impl Lock {
     }
 }
 
+/// True when `src` is exactly what the writer produces. Line endings do not count: a Windows checkout with
+/// `core.autocrlf` turns every `\n` into `\r\n`, and the file is still canonical.
+pub fn is_canonical(lock: &Lock, src: &str) -> bool {
+    lock.to_text() == src.replace("\r\n", "\n")
+}
+
 type R<T> = Result<T, PErr>;
 
 fn string(n: &Node, what: &str) -> R<String> {
@@ -408,8 +414,8 @@ mod tests {
         Version::parse(s).unwrap()
     }
 
-    fn is_canonical(src: &str) -> Result<bool, Diag> {
-        Ok(parse_lock("islet.lock", src)?.to_text() == src)
+    fn canonical(src: &str) -> Result<bool, Diag> {
+        Ok(is_canonical(&parse_lock("islet.lock", src)?, src))
     }
 
     fn pkg(name: &str, ver: &str, h: char, deps: &[&str]) -> Locked {
@@ -489,7 +495,7 @@ mod tests {
     fn the_example_lock_is_canonical() {
         let text = include_str!("../examples/islet.lock");
         let lock = parse_lock("islet.lock", text).unwrap();
-        assert_eq!(lock.to_text(), text);
+        assert!(is_canonical(&lock, text));
         assert_eq!(lock.members.len(), 4);
         assert_eq!(lock.packages.len(), 8);
     }
@@ -552,8 +558,10 @@ packages:
         let text = sample().to_text();
         let parsed = parse_lock("islet.lock", &text).unwrap();
         assert_eq!(parsed.to_text(), text);
-        assert!(is_canonical(&text).unwrap());
-        assert!(!is_canonical(&text.replace("    wire: 0.7.2", "    wire:   0.7.2")).unwrap());
+        assert!(canonical(&text).unwrap());
+        assert!(!canonical(&text.replace("    wire: 0.7.2", "    wire:   0.7.2")).unwrap());
+        // Windows line endings do not make a lock non-canonical.
+        assert!(canonical(&text.replace('\n', "\r\n")).unwrap());
     }
 
     #[test]
