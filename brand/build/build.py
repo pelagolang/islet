@@ -214,11 +214,21 @@ def file_icon(name, dark):
     if name == "islet-toml":
         glyph = cube(64, 66, 27, *tone(pal["gold"]))
     elif name == "islet-lock":
-        shackle = (f'<path d="M55 62V44a9 9 0 0 1 18 0V62" fill="none" stroke="{pal["ink"]}" stroke-width="7" '
-                   'stroke-linecap="round" stroke-linejoin="round"/>')
-        glyph = shackle + cube(64, 78, 22, *tone(pal["sun"]))
+        keyhole = f'<circle cx="64" cy="71" r="5.5" fill="{fill}"/><rect x="61.5" y="73" width="5" height="11" rx="2.5" fill="{fill}"/>'
+        glyph = (
+            f'<path d="M50 60V47a14 14 0 0 1 28 0V60" fill="none" stroke="{pal["ink"]}" stroke-width="8" stroke-linecap="round"/>'
+            f'<rect x="40" y="58" width="48" height="38" rx="8" fill="{pal["sun"]}"/>' + keyhole
+        )
     else:
-        glyph = f'<g transform="translate(64 66) scale(1.3) translate(-64 -66)">{trio((tone(pal["gold"]), tone(pal["sun"]), tone(pal["green"])))}</g>'
+        r = 12.5
+        parts = []
+        rows = ((pal["gold"], 1), (pal["sun"], 2), (pal["green"], 3))
+        y0 = 47.25
+        for i, (colour, n) in enumerate(rows):
+            for j in range(n):
+                cx = 64 + (j - (n - 1) / 2) * 2 * K * r
+                parts.append(cube(cx, y0 + i * 1.5 * r, r, *tone(colour)))
+        glyph = "".join(parts)
     return tile + glyph
 
 
@@ -744,8 +754,97 @@ def spec_cube():
     return spec_head(width, "Cube construction", "How to draw one cube, then the group of three. Pink: construction. Unit r is the cube edge (16 in the mark).", 1180) + body + "</svg>"
 
 
+def spec_shell():
+    """How to draw the hexagon shell, step by step, then how the trio sits inside it."""
+    S = 2.9
+    colw = 345
+    xs = [48 + i * colw for i in range(5)]
+    cy0 = 470
+    body = ""
+
+    def panel(i, title, text, ox, y=150):
+        out = label(ox, y, f"{i}. {title}", 17, weight=700, fill=LIGHT["shell"])
+        t, _ = wrap(text, ox, y + 24, 13, 38)
+        return out + t
+
+    R = SHELL_R
+    P = lambda cx, k, rr=R: (cx + rr * S * math.cos(math.radians(-90 + 60 * k)), cy0 + rr * S * math.sin(math.radians(-90 + 60 * k)))
+    names = ["V1", "V2", "V3", "V4", "V5", "V6"]
+
+    # 1 circle and six points
+    cx = xs[0] + 150
+    body += panel(1, "A circle, six points", "Draw a circle of radius 52 around the centre of the 128 grid (64, 64). Mark six points on it, 60 degrees apart, starting at the top.", xs[0])
+    body += f'<circle cx="{cx}" cy="{cy0}" r="{R * S}" fill="none" stroke="{GUIDE}" stroke-width="1.2" stroke-dasharray="4 4"/>'
+    body += line(cx, cy0 - R * S - 12, cx, cy0 + R * S + 12, GUIDE, 1, "3 5") + line(cx - R * S - 12, cy0, cx + R * S + 12, cy0, GUIDE, 1, "3 5")
+    for k in range(6):
+        x, y = P(cx, k)
+        dx = 12 if x >= cx else -12
+        body += f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.5" fill="{GUIDE}"/>' + label(x + dx, y + (-8 if k in (0, 1, 5) else 18), names[k], 12, "start" if dx > 0 else "end", GUIDE, 700)
+    body += dim(cx, cy0 + R * S + 40, cx + R * S, cy0 + R * S + 40, "r 52", 1, 12)
+
+    # 2 sharp hexagon with the coordinates
+    cx = xs[1] + 185
+    body += panel(2, "Join them", "Join the six points into a hexagon with a point on top. It is regular: every side is 52 long.", xs[1])
+    body += f'<path d="M{"L".join("%.1f %.1f" % P(cx, k) for k in range(6))}Z" fill="none" stroke="{GUIDE}" stroke-width="2"/>'
+    coords = [(64, 12), (109.0, 38), (109.0, 90), (64, 116), (19.0, 90), (19.0, 38)]
+    for k, (ux, uy) in enumerate(coords):
+        x, y = P(cx, k)
+        dx = 12 if x >= cx else -12
+        body += f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.5" fill="{GUIDE}"/>' + label(x + dx, y + (-8 if k in (0, 1, 5) else 18), f"({ux:g}, {uy:g})", 12, "start" if dx > 0 else "end", INK, 600)
+
+    # 3 one corner, zoomed
+    ox = xs[2]
+    Z = 6.5
+    vx, vy = ox + 150, cy0 - 40  # the top vertex, zoomed
+    ex1, ey1 = vx + math.cos(math.radians(30)) * 18 * Z * 0.9, vy + math.sin(math.radians(30)) * 18 * Z * 0.9
+    ex0, ey0 = vx - math.cos(math.radians(30)) * 18 * Z * 0.9, ey1
+    rho = 14
+    a = (vx - math.cos(math.radians(30)) * rho * Z, vy + math.sin(math.radians(30)) * rho * Z)
+    b = (vx + math.cos(math.radians(30)) * rho * Z, a[1])
+    body += panel(3, "Round each corner", "At every corner, measure 14 units back along each side (points A and B). Replace the corner with a curve from A to B that uses the corner as its control point.", ox)
+    body += f'<path d="M{ex0:.1f} {ey0:.1f}L{vx:.1f} {vy:.1f}L{ex1:.1f} {ey1:.1f}" fill="none" stroke="{MUTED_LIGHT}" stroke-width="1.5" stroke-dasharray="5 4"/>'
+    body += f'<path d="M{a[0]:.1f} {a[1]:.1f}Q{vx:.1f} {vy:.1f} {b[0]:.1f} {b[1]:.1f}" fill="none" stroke="{GUIDE}" stroke-width="3"/>'
+    body += line(a[0], a[1], vx, vy, GUIDE, 1, "3 3") + line(b[0], b[1], vx, vy, GUIDE, 1, "3 3")
+    body += f'<circle cx="{vx:.1f}" cy="{vy:.1f}" r="4" fill="{GUIDE}"/>' + label(vx, vy - 14, "corner (control point)", 12, "middle", GUIDE, 700)
+    body += f'<circle cx="{a[0]:.1f}" cy="{a[1]:.1f}" r="4" fill="{GUIDE}"/>' + label(a[0] - 8, a[1] + 20, "A", 13, "end", GUIDE, 700)
+    body += f'<circle cx="{b[0]:.1f}" cy="{b[1]:.1f}" r="4" fill="{GUIDE}"/>' + label(b[0] + 8, b[1] + 20, "B", 13, "start", GUIDE, 700)
+    body += label(vx, vy + 150, "A and B are 14 from the corner", 12, "middle", GUIDE, 600)
+
+    # 4 the rounded outline and the stroke
+    cx = xs[3] + 150
+    pts = [P(cx, k) for k in range(6)]
+    body += panel(4, "Give the line a width", "The rounded hexagon is the centre line. Stroke it 11 wide with round joins: that is 5.5 on each side, so the shell reaches 46.5 to 57.5 from the centre.", xs[3])
+    body += f'<path d="{rpath(pts, rho * S)}" fill="none" stroke="{LIGHT["shell"]}" stroke-width="{SHELL_W * S}" stroke-linejoin="round" opacity="0.85"/>'
+    body += f'<path d="{rpath(pts, rho * S)}" fill="none" stroke="{GUIDE}" stroke-width="1.5"/>'
+    body += f'<circle cx="{cx}" cy="{cy0}" r="{(R + SHELL_W / 2) * S}" fill="none" stroke="{GUIDE}" stroke-width="1" stroke-dasharray="2 4"/>'
+    body += f'<circle cx="{cx}" cy="{cy0}" r="{(R - SHELL_W / 2) * S}" fill="none" stroke="{GUIDE}" stroke-width="1" stroke-dasharray="2 4"/>'
+    body += dim(cx + (R - SHELL_W / 2) * S, cy0 + R * S + 40, cx + (R + SHELL_W / 2) * S, cy0 + R * S + 40, "11", 1, 12)
+
+    # 5 trio inside
+    ox = xs[4]
+    cx = ox + 150
+    body += panel(5, "Put the cubes inside", "Centre the three-cube group on x = 64 and y = 66, two units below the shell centre. The clear gap to the inside of the shell is about the width of a cube edge.", ox)
+    body += f'<g transform="translate({cx - 64 * S} {cy0 - 64 * S}) scale({S})">{mark_body(LIGHT)}</g>'
+    body += line(cx - R * S - 8, cy0 + 2 * S, cx + R * S + 8, cy0 + 2 * S, GUIDE, 1, "3 5") + label(cx + R * S + 10, cy0 + 2 * S + 4, "y 66", 12, "start", GUIDE, 700)
+    body += line(cx, cy0 - R * S - 8, cx, cy0 + R * S + 8, GUIDE, 1, "3 5")
+
+    # the recipe
+    body += label(48, 790, "Recipe", 20, weight=700, fill=INK)
+    code = [
+        "points   (64,12) (109,38) (109,90) (64,116) (19,90) (19,38)",
+        "corners  at each point P: A = 14 back toward the previous point, B = 14 on toward the next;  M A  Q P  B",
+        "stroke   #0F9AA6 (dark: #4FD6D0), width 11, fill none, round joins",
+    ]
+    body += '<rect x="48" y="810" width="1100" height="112" rx="6" fill="#0E3440"/>'
+    for i, ln in enumerate(code):
+        body += f'<text x="64" y="{842 + i * 28}" font-family="Consolas, Menlo, monospace" font-size="15" fill="#FFF1C9">{ln}</text>'
+    body += label(48, 954, "The finished path is in brand/logo/islet-mark.svg. Six curves joined by straight lines; build.py draws it in rpath().", 14, fill=INK)
+    body += f'<svg x="1250" y="740" width="260" height="260" viewBox="0 0 128 128">{mark_body(LIGHT)}</svg>'
+    return spec_head(1800, "Shell construction", "How to draw the hexagon shell around the cubes. Pink: construction. All numbers are on the 128 grid.", 1040) + body + "</svg>"
+
+
 def specs():
-    return {"spec/mark-construction.svg": spec_construction(), "spec/icon-construction.svg": spec_icon(), "spec/lockup-clear-space.svg": spec_lockup(), "spec/cube-construction.svg": spec_cube()}
+    return {"spec/mark-construction.svg": spec_construction(), "spec/icon-construction.svg": spec_icon(), "spec/lockup-clear-space.svg": spec_lockup(), "spec/cube-construction.svg": spec_cube(), "spec/shell-construction.svg": spec_shell()}
 
 
 # ---------------------------------------------------------------- main
