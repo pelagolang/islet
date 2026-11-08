@@ -219,6 +219,19 @@ def block_cube(pal, s=12, cx=64, base=66):
     return out
 
 
+def rounded_block_cube(pal, seam, s=12, cx=64, base=66):
+    """The 27-block cube with its outer outline rounded: full-size blocks, thin seams in the tile colour, clipped."""
+    _uid[0] += 1
+    cid = f"islet-bc-{_uid[0]}"
+    r = 3 * s
+    pts = [(cx + r * math.cos(math.radians(-90 + 60 * k)), base + r * math.sin(math.radians(-90 + 60 * k))) for k in range(6)]
+    blocks = ""
+    for _, x, y, z in sorted((x + y + z, x, y, z) for x in range(3) for y in range(3) for z in range(3)):
+        blocks += cube(cx + (x - y) * K * s, base + (x + y) * 0.5 * s - z * s, s, *tone(pal["gold"]))
+    blocks = blocks.replace("/>", f' stroke="{seam}" stroke-width="1" stroke-linejoin="round"/>')
+    return f'<clipPath id="{cid}"><path d="{rpath(pts, 15)}"/></clipPath><g clip-path="url(#{cid})">{blocks}</g>'
+
+
 def file_icon(name, dark):
     """A rounded hexagon tile (the shell) with the cubes inside. No page outline: the shape is Islet's own."""
     pal = DARK  # the cubes always use the bright palette; the tile changes with the theme
@@ -238,13 +251,14 @@ def file_icon(name, dark):
             + f'<circle cx="91" cy="94.2" r="2" fill="{pal["sun"]}"/><rect x="90" y="95" width="2" height="3.6" rx="1" fill="{pal["sun"]}"/>'
         )
     else:
-        glyph = block_cube(pal)
+        glyph = rounded_block_cube(pal, fill) if name.endswith("-rounded") else block_cube(pal)
     return tile + glyph
 
 
 def file_icons():
     out = {}
     for dark, suf in ((False, ""), (True, "-dark")):
+        out[f"editor/file-icons/alt/monorepo-toml-rounded{suf}.svg"] = SVG_OPEN % "0 0 128 128" + file_icon("monorepo-toml-rounded", dark) + "</svg>"
         for name, _ in FILES:
             out[f"editor/file-icons/{name}{suf}.svg"] = SVG_OPEN % "0 0 128 128" + file_icon(name, dark) + "</svg>"
     return out
@@ -902,7 +916,7 @@ def main():
     job("icon/avatar.svg", "icon/avatar-512.png", 512)
     job("icon/avatar-light.svg", "icon/avatar-light-512.png", 512)
     job("icon/islet-icon.svg", "editor/vscode-icon-256.png", 256)
-    for f in sorted(glob.glob(str(BRAND / "editor/file-icons/*.svg"))):
+    for f in sorted(glob.glob(str(BRAND / "editor/file-icons/*.svg")) + glob.glob(str(BRAND / "editor/file-icons/alt/*.svg"))):
         rel = os.path.relpath(f, BRAND).replace(os.sep, "/")
         job(rel, rel[:-4] + "-128.png", 128)
     for n, w, h, d, t in SOCIAL:
