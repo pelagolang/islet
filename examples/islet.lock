@@ -1,0 +1,58 @@
+# islet.lock: written by islet, do not edit.
+format: 1
+
+catalog:
+  json: 1.5.0
+  json/v2: 2.0.1
+  uart: 0.3.0
+
+members:
+  apps/dashboard:
+    cli-args: 1.0.3
+    clock: 1.1.0
+    core:
+      path: libs/core
+    json/v2:
+      version: 2.0.1
+      from: monorepo
+  apps/legacy-export:
+    core:
+      path: libs/core
+    json:
+      version: 1.2.0
+      exception: true
+  libs/core:
+    json:
+      version: 1.5.0
+      from: monorepo
+    units: 0.2.4
+  libs/sensor:
+    uart:
+      version: 0.3.0
+      from: monorepo
+      target: avr-atmega328p
+    wire: 0.7.2
+
+packages:
+  cli-args@1.0.3:
+    hash: "e4d8979ffc6b4cc69e7362135748d81f2b89b4cce17277bf8a57eaa4e1a52017"
+  clock@1.1.0:
+    hash: "2f1629eb58d6e4e3f97ea3abccab5e3ea7e2b944a92c82a1a4787fb1e1505ffd"
+  json@1.2.0:
+    hash: "5e4a6d5e3475d57be438a0ed1c2f81e1e2fd52c82d2edf6b974ddc6666cdd8a6"
+  json@1.5.0:
+    hash: "2708a2eef28076c39dd92a656d62e0259a7011ad7d7e4e6dcddff60474e936aa"
+  json/v2@2.0.1:
+    hash: "22bafcfdd8884e484a5ae2dd1258634b318f989fadd84f1a423aec9219f0be60"
+    needs:
+      - units@0.2.4
+  uart@0.3.0:
+    hash: "68af40970ef455f62c0029aacdb58929655c87dbdeed12fed0863bac12126102"
+    needs:
+      - clock@1.1.0
+  units@0.2.4:
+    hash: "10e685e211ac69fdc74fe7a40160a41ed3ab39aad33dbe7a2c3c15d04c81d81b"
+  wire@0.7.2:
+    hash: "b6b1eeb2f44ffa56573d822c109b64a491bb84af1852fd7db34ec3ae3ba0a52b"
+    needs:
+      - uart@0.3.0

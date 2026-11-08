@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://pelagolang.github.io/website/schema/islet/1.json
+format: 1
+
+package:
+  name: demo
+  version: 0.1.0
+  license: MIT OR Apache-2.0
+  description: A sample package.
+
+dependencies:
+  json: 1.2.0
+  json/v2:
+    version: 2.0.1

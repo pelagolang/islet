@@ -1,7 +1,7 @@
-//! `islet.toml` and `monorepo.toml`: read, check against the rules in `schema/`, and resolve
-//! `{ from = "monorepo" }` references. Every error carries a line and column.
+//! `islet.yaml` and `monorepo.yaml`: read, check against the rules in `schema/`, and resolve
+//! `from: monorepo` references. Every error carries a line and column.
 
-use crate::toml::{self, Diag, Entry, Node, PErr, Table, Val};
+use crate::yaml::{self, Diag, Entry, Node, PErr, Table, Val};
 use std::fmt;
 
 type R<T> = Result<T, PErr>;
@@ -96,7 +96,7 @@ pub struct Requirement {
 #[derive(Debug, Clone, PartialEq)]
 pub enum DepSpec {
     Req(Requirement),
-    /// `{ from = "monorepo" }`
+    /// `from: monorepo`
     FromMonorepo,
 }
 
@@ -160,7 +160,7 @@ pub struct Monorepo {
 fn table_of<'a>(n: &'a Node, what: &str) -> R<&'a Table> {
     match &n.v {
         Val::Table(t) => Ok(t),
-        _ => Err(PErr::new(n.at, format!("{what} must be a table"))),
+        _ => Err(PErr::new(n.at, format!("{what} must be a mapping"))),
     }
 }
 
@@ -195,7 +195,7 @@ fn need<'a>(t: &'a Table, key: &str, at: usize, section: &str) -> R<&'a Node> {
 
 fn strings(n: &Node, what: &str, min: usize) -> R<Vec<String>> {
     match &n.v {
-        Val::Arr { items, .. } => {
+        Val::Arr(items) => {
             if items.len() < min {
                 return Err(PErr::new(
                     n.at,
@@ -301,7 +301,7 @@ fn uri_of(n: &Node, what: &str) -> R<String> {
 
 fn check_format(root: &Table) -> R<()> {
     match root.get("format") {
-        None => Err(PErr::new(0, "the file needs `format = 1` at the top")),
+        None => Err(PErr::new(0, "the file needs `format: 1` at the top")),
         Some(Node { v: Val::Int(1), .. }) => Ok(()),
         Some(n) => Err(PErr::new(
             n.at,
@@ -329,13 +329,13 @@ fn dependencies(n: &Node, allow_git: bool, allow_from: bool) -> R<Vec<Dependency
                     if !allow_from {
                         return Err(PErr::new(
                             rt.entries[0].key_at,
-                            "`from` is only meaningful in a member's islet.toml",
+                            "`from` is only meaningful in a member's islet.yaml",
                         ));
                     }
                     if rt.entries.len() != 1 {
                         return Err(PErr::new(
                             rt.entries[1].key_at,
-                            "`{ from = \"monorepo\" }` takes no other keys",
+                            "`from: monorepo` takes no other keys",
                         ));
                     }
                     match &from.v {
@@ -384,7 +384,7 @@ fn dependencies(n: &Node, allow_git: bool, allow_from: bool) -> R<Vec<Dependency
             _ => {
                 return Err(PErr::new(
                     node.at,
-                    "a dependency is a version string or a table",
+                    "a dependency is a version string or a mapping",
                 ))
             }
         };
@@ -397,11 +397,11 @@ fn dependencies(n: &Node, allow_git: bool, allow_from: bool) -> R<Vec<Dependency
     Ok(out)
 }
 
-// ---- islet.toml -------------------------------------------------------------------------------------------
+// ---- islet.yaml -------------------------------------------------------------------------------------------
 
 pub fn parse_manifest(file: &str, src: &str) -> Result<Manifest, Diag> {
     let inner = || -> R<Manifest> {
-        let root = toml::parse(src)?;
+        let root = yaml::parse(src)?;
         check_format(&root)?;
         only_keys(
             &root,
@@ -409,7 +409,7 @@ pub fn parse_manifest(file: &str, src: &str) -> Result<Manifest, Diag> {
             "the file",
         )?;
         let pn = need(&root, "package", 0, "the file")?;
-        let pt = table_of(pn, "`[package]`")?;
+        let pt = table_of(pn, "`package`")?;
         only_keys(
             pt,
             &[
@@ -421,10 +421,10 @@ pub fn parse_manifest(file: &str, src: &str) -> Result<Manifest, Diag> {
                 "repository",
                 "publish",
             ],
-            "[package]",
+            "package",
         )?;
-        let name = name_of(need(pt, "name", pn.at, "[package]")?, "`name`")?;
-        let version = version_of(need(pt, "version", pn.at, "[package]")?, "`version`")?;
+        let name = name_of(need(pt, "name", pn.at, "package")?, "`name`")?;
+        let version = version_of(need(pt, "version", pn.at, "package")?, "`version`")?;
         let license = match pt.get("license") {
             Some(n) => {
                 let s = str_of(n, "`license`")?;
@@ -472,9 +472,9 @@ pub fn parse_manifest(file: &str, src: &str) -> Result<Manifest, Diag> {
 
         let mut generate = Vec::new();
         if let Some(gn) = root.get("generate") {
-            for e in &table_of(gn, "`[generate]`")?.entries {
-                let gt = table_of(&e.node, &format!("`[generate.{}]`", e.key))?;
-                let sec = format!("[generate.{}]", e.key);
+            for e in &table_of(gn, "`generate`")?.entries {
+                let gt = table_of(&e.node, &format!("`generate.{}`", e.key))?;
+                let sec = format!("generate.{}", e.key);
                 only_keys(gt, &["tool", "args", "inputs", "outputs"], &sec)?;
                 let tool = str_of(need(gt, "tool", e.node.at, &sec)?, "`tool`")?;
                 if tool.is_empty() {
@@ -485,7 +485,7 @@ pub fn parse_manifest(file: &str, src: &str) -> Result<Manifest, Diag> {
                     tool,
                     args: match gt.get("args") {
                         Some(n) => match &n.v {
-                            Val::Arr { items, .. } => items
+                            Val::Arr(items) => items
                                 .iter()
                                 .map(|i| str_of(i, "every entry of `args`"))
                                 .collect::<R<_>>()?,
@@ -501,8 +501,8 @@ pub fn parse_manifest(file: &str, src: &str) -> Result<Manifest, Diag> {
 
         let (mut c_sources, mut c_system) = (Vec::new(), Vec::new());
         if let Some(cn) = root.get("c") {
-            let ct = table_of(cn, "`[c]`")?;
-            only_keys(ct, &["sources", "system"], "[c]")?;
+            let ct = table_of(cn, "`c`")?;
+            only_keys(ct, &["sources", "system"], "c")?;
             c_sources = ct
                 .get("sources")
                 .map(|n| strings(n, "`sources`", 0))
@@ -533,11 +533,11 @@ pub fn parse_manifest(file: &str, src: &str) -> Result<Manifest, Diag> {
     inner().map_err(|e| Diag::new(file, src, e))
 }
 
-// ---- monorepo.toml ----------------------------------------------------------------------------------------
+// ---- monorepo.yaml ----------------------------------------------------------------------------------------
 
 pub fn parse_monorepo(file: &str, src: &str) -> Result<Monorepo, Diag> {
     let inner = || -> R<Monorepo> {
-        let root = toml::parse(src)?;
+        let root = yaml::parse(src)?;
         check_format(&root)?;
         only_keys(
             &root,
@@ -545,9 +545,9 @@ pub fn parse_monorepo(file: &str, src: &str) -> Result<Monorepo, Diag> {
             "the file",
         )?;
         let wn = need(&root, "workspace", 0, "the file")?;
-        let wt = table_of(wn, "`[workspace]`")?;
-        only_keys(wt, &["members", "exclude"], "[workspace]")?;
-        let mn = need(wt, "members", wn.at, "[workspace]")?;
+        let wt = table_of(wn, "`workspace`")?;
+        only_keys(wt, &["members", "exclude"], "workspace")?;
+        let mn = need(wt, "members", wn.at, "workspace")?;
         let members = strings(mn, "`members`", 1)?;
         unique(&members, mn, "`members`")?;
         let exclude = match wt.get("exclude") {
@@ -566,23 +566,22 @@ pub fn parse_monorepo(file: &str, src: &str) -> Result<Monorepo, Diag> {
 
         let mut exceptions = Vec::new();
         if let Some(en) = root.get("exception") {
-            let items = match &en.v {
-                Val::Arr { items, .. } => items,
-                _ => {
-                    return Err(PErr::new(
+            let items =
+                match &en.v {
+                    Val::Arr(items) => items,
+                    _ => return Err(PErr::new(
                         en.at,
-                        "`exception` must be written as `[[exception]]` tables",
-                    ))
-                }
-            };
+                        "`exception` must be a list of entries, each starting with `- package:`",
+                    )),
+                };
             for item in items {
-                let et = table_of(item, "an `[[exception]]`")?;
+                let et = table_of(item, "an `exception` entry")?;
                 only_keys(
                     et,
                     &["package", "version", "members", "reason"],
-                    "[[exception]]",
+                    "exception",
                 )?;
-                let pn = need(et, "package", item.at, "[[exception]]")?;
+                let pn = need(et, "package", item.at, "exception")?;
                 let package = str_of(pn, "`package`")?;
                 if !is_dep_key(&package) {
                     return Err(PErr::new(
@@ -590,10 +589,10 @@ pub fn parse_monorepo(file: &str, src: &str) -> Result<Monorepo, Diag> {
                         format!("`{package}` is not a package name"),
                     ));
                 }
-                let mem = need(et, "members", item.at, "[[exception]]")?;
+                let mem = need(et, "members", item.at, "exception")?;
                 let members = strings(mem, "`members`", 1)?;
                 unique(&members, mem, "`members`")?;
-                let rn = need(et, "reason", item.at, "[[exception]]")?;
+                let rn = need(et, "reason", item.at, "exception")?;
                 let reason = str_of(rn, "`reason`")?;
                 if reason.is_empty() || reason.chars().count() > 200 {
                     return Err(PErr::new(
@@ -603,10 +602,7 @@ pub fn parse_monorepo(file: &str, src: &str) -> Result<Monorepo, Diag> {
                 }
                 exceptions.push(Exception {
                     package,
-                    version: version_of(
-                        need(et, "version", item.at, "[[exception]]")?,
-                        "`version`",
-                    )?,
+                    version: version_of(need(et, "version", item.at, "exception")?, "`version`")?,
                     members,
                     reason,
                 });
@@ -614,8 +610,8 @@ pub fn parse_monorepo(file: &str, src: &str) -> Result<Monorepo, Diag> {
         }
         let remote_cache = match root.get("cache") {
             Some(cn) => {
-                let ct = table_of(cn, "`[cache]`")?;
-                only_keys(ct, &["remote"], "[cache]")?;
+                let ct = table_of(cn, "`cache`")?;
+                only_keys(ct, &["remote"], "cache")?;
                 ct.get("remote")
                     .map(|n| uri_of(n, "`remote`"))
                     .transpose()?
@@ -633,7 +629,7 @@ pub fn parse_monorepo(file: &str, src: &str) -> Result<Monorepo, Diag> {
     inner().map_err(|e| Diag::new(file, src, e))
 }
 
-/// Replace every `{ from = "monorepo" }` in a member with the shared table's requirement. The error names the
+/// Replace every ``from: monorepo`` in a member with the shared table's requirement. The error names the
 /// member's key, at the line where the member wrote it.
 pub fn resolve(
     member: &Manifest,
@@ -651,7 +647,7 @@ pub fn resolve(
                 _ => {
                     return Err((
                         d.at,
-                        format!("`{}` is not in the monorepo's shared [dependencies]", d.key),
+                        format!("`{}` is not in the monorepo's shared `dependencies`", d.key),
                     ))
                 }
             },
@@ -665,23 +661,29 @@ pub fn resolve(
 mod tests {
     use super::*;
 
-    const ISLET: &str = include_str!("../examples/islet.toml");
-    const MONOREPO: &str = include_str!("../examples/monorepo.toml");
-    const MEMBER: &str = include_str!("../examples/monorepo-member/islet.toml");
+    const ISLET: &str = include_str!("../examples/islet.yaml");
+    const MONOREPO: &str = include_str!("../examples/monorepo.yaml");
+    const MEMBER: &str = include_str!("../examples/monorepo-member/islet.yaml");
+
+    const HEAD: &str = "format: 1\npackage:\n  name: a\n  version: 0.1.0\n";
 
     fn bad_manifest(src: &str) -> Diag {
-        parse_manifest("islet.toml", src).unwrap_err()
+        parse_manifest("islet.yaml", src).unwrap_err()
+    }
+
+    fn with_deps(deps: &str) -> String {
+        format!("{HEAD}dependencies:\n{deps}")
     }
 
     #[test]
     fn the_examples_parse() {
-        let m = parse_manifest("islet.toml", ISLET).unwrap();
+        let m = parse_manifest("islet.yaml", ISLET).unwrap();
         assert_eq!(m.package.name, "demo");
         assert_eq!(m.package.version.to_string(), "0.1.0");
         assert!(m.package.publish);
         assert_eq!(m.dependencies.len(), 2);
         assert_eq!(m.dependencies[1].key, "json/v2");
-        let r = parse_monorepo("monorepo.toml", MONOREPO).unwrap();
+        let r = parse_monorepo("monorepo.yaml", MONOREPO).unwrap();
         assert_eq!(r.members, ["libs/*", "apps/*"]);
         assert_eq!(r.dependencies.len(), 3);
         assert_eq!(r.exceptions[0].members, ["apps/legacy-export"]);
@@ -690,8 +692,8 @@ mod tests {
 
     #[test]
     fn from_monorepo_resolves_to_the_shared_requirement() {
-        let r = parse_monorepo("monorepo.toml", MONOREPO).unwrap();
-        let m = parse_manifest("islet.toml", MEMBER).unwrap();
+        let r = parse_monorepo("monorepo.yaml", MONOREPO).unwrap();
+        let m = parse_manifest("islet.yaml", MEMBER).unwrap();
         assert!(m
             .dependencies
             .iter()
@@ -705,75 +707,79 @@ mod tests {
 
     #[test]
     fn a_missing_shared_entry_names_the_key_and_its_line() {
-        let r = parse_monorepo("monorepo.toml", MONOREPO).unwrap();
-        let src = "format = 1\n[package]\nname = \"a\"\nversion = \"0.1.0\"\n[dependencies]\nnope = { from = \"monorepo\" }\n";
-        let m = parse_manifest("islet.toml", src).unwrap();
+        let r = parse_monorepo("monorepo.yaml", MONOREPO).unwrap();
+        let src = with_deps("  nope:\n    from: monorepo\n");
+        let m = parse_manifest("islet.yaml", &src).unwrap();
         let (at, msg) = resolve(&m, &r).unwrap_err();
-        let d = Diag::new("islet.toml", src, PErr::new(at, msg));
-        assert_eq!((d.line, d.col), (6, 1));
+        let d = Diag::new("islet.yaml", &src, PErr::new(at, msg));
+        assert_eq!((d.line, d.col), (6, 3));
         assert!(d.msg.contains("`nope` is not in the monorepo's shared"));
     }
 
     #[test]
     fn manifest_errors_point_at_the_problem() {
-        let head = "format = 1\n[package]\nname = \"a\"\nversion = \"0.1.0\"\n";
-        let d = bad_manifest("[package]\nname = \"a\"\nversion = \"0.1.0\"\n");
+        let d = bad_manifest("package:\n  name: a\n  version: 0.1.0\n");
         assert_eq!((d.line, d.col), (1, 1));
-        assert!(d.msg.contains("format = 1"));
-        assert!(bad_manifest("format = 2\n").msg.contains("only format 1"));
-        let d = bad_manifest(&format!("{head}[dependencies]\nJson = \"1.0.0\"\n"));
+        assert!(d.msg.contains("format: 1"));
+        assert!(bad_manifest("format: 2\n").msg.contains("only format 1"));
+        let d = bad_manifest(&with_deps("  Json: 1.0.0\n"));
         assert_eq!(d.line, 6);
         assert!(d.msg.contains("not a package name"));
-        let d = bad_manifest(&format!("{head}[dependencies]\njson = \"1.0\"\n"));
-        assert_eq!((d.line, d.col), (6, 8));
+        let d = bad_manifest(&with_deps("  json: \"1.0\"\n"));
+        assert_eq!((d.line, d.col), (6, 9));
         assert!(d.msg.contains("version like 1.2.3"));
+        // An unquoted 1.0 is caught by the YAML reader before the manifest sees it.
+        assert!(bad_manifest(&with_deps("  json: 1.0\n"))
+            .msg
+            .contains("number or date"));
+        assert!(bad_manifest(&with_deps("  json/v1: 1.0.0\n"))
+            .msg
+            .contains("not a package name"));
         assert!(
-            bad_manifest(&format!("{head}[dependencies]\n\"json/v1\" = \"1.0.0\"\n"))
+            bad_manifest(&with_deps("  json:\n    version: 1.0.0\n    colour: 1\n"))
                 .msg
-                .contains("not a package name")
+                .contains("unknown key `colour`")
         );
-        assert!(bad_manifest(&format!(
-            "{head}[dependencies]\njson = {{ version = \"1.0.0\", colour = 1 }}\n"
-        ))
-        .msg
-        .contains("unknown key `colour`"));
-        assert!(bad_manifest(&format!(
-            "{head}[dependencies]\njson = {{ from = \"monorepo\", version = \"1.0.0\" }}\n"
+        assert!(bad_manifest(&with_deps(
+            "  json:\n    from: monorepo\n    version: 1.0.0\n"
         ))
         .msg
         .contains("takes no other keys"));
-        assert!(bad_manifest(&format!(
-            "{head}[dependencies]\njson = {{ from = \"elsewhere\" }}\n"
-        ))
-        .msg
-        .contains("must be \"monorepo\""));
+        assert!(bad_manifest(&with_deps("  json:\n    from: elsewhere\n"))
+            .msg
+            .contains("must be \"monorepo\""));
         assert!(
-            bad_manifest("format = 1\n[package]\nname = \"A\"\nversion = \"0.1.0\"\n")
+            bad_manifest("format: 1\npackage:\n  name: A\n  version: 0.1.0\n")
                 .msg
                 .contains("lowercase")
         );
-        assert!(bad_manifest("format = 1\n[package]\nname = \"a\"\n")
+        assert!(bad_manifest("format: 1\npackage:\n  name: a\n")
             .msg
             .contains("needs `version`"));
-        assert!(bad_manifest(&format!("{head}colour = 1\n"))
+        assert!(bad_manifest(&format!("{HEAD}  colour: 1\n"))
             .msg
-            .contains("unknown key `colour` in [package]"));
+            .contains("unknown key `colour` in package"));
         assert!(bad_manifest(
-            "format = 1\n[package]\nname = \"a\"\nversion = \"0.1.0\"\nrepository = \"nope\"\n"
+            "format: 1\npackage:\n  name: a\n  version: 0.1.0\n  repository: nope\n"
         )
         .msg
         .contains("URI"));
         assert!(bad_manifest(&format!(
-            "{head}[generate.x]\ntool = \"t\"\ninputs = []\noutputs = [\"o\"]\n"
+            "{HEAD}generate:\n  x:\n    tool: t\n    inputs: []\n    outputs:\n      - o\n"
         ))
         .msg
         .contains("at least 1 entry"));
+        assert!(bad_manifest(&format!("{HEAD}colour: 1\n"))
+            .msg
+            .contains("unknown key `colour` in the file"));
     }
 
     #[test]
     fn generate_and_c_sections_parse() {
-        let src = "format = 1\n[package]\nname = \"a\"\nversion = \"0.1.0\"\npublish = false\n[generate.tables]\ntool = \"gen\"\nargs = [\"-x\"]\ninputs = [\"a.def\"]\noutputs = [\"a.pel\"]\n[c]\nsources = [\"x.c\"]\nsystem = [\"m\"]\n";
-        let m = parse_manifest("islet.toml", src).unwrap();
+        let src = format!(
+            "{HEAD}  publish: false\ngenerate:\n  tables:\n    tool: gen\n    args:\n      - -x\n    inputs:\n      - a.def\n    outputs:\n      - a.pel\nc:\n  sources:\n    - x.c\n  system:\n    - m\n"
+        );
+        let m = parse_manifest("islet.yaml", &src).unwrap();
         assert!(!m.package.publish);
         assert_eq!(m.generate[0].name, "tables");
         assert_eq!(m.generate[0].args, ["-x"]);
@@ -783,22 +789,22 @@ mod tests {
 
     #[test]
     fn monorepo_errors() {
-        let bad = |s: &str| parse_monorepo("monorepo.toml", s).unwrap_err();
-        assert!(bad("format = 1\n").msg.contains("needs `workspace`"));
-        assert!(bad("format = 1\n[workspace]\nmembers = []\n")
+        let bad = |s: &str| parse_monorepo("monorepo.yaml", s).unwrap_err();
+        assert!(bad("format: 1\n").msg.contains("needs `workspace`"));
+        assert!(bad("format: 1\nworkspace:\n  members: []\n")
             .msg
             .contains("at least 1 entry"));
-        assert!(bad("format = 1\n[workspace]\nmembers = [\"a\", \"a\"]\n")
+        assert!(bad("format: 1\nworkspace:\n  members:\n    - a\n    - a\n")
             .msg
             .contains("twice"));
-        let d = bad("format = 1\n[workspace]\nmembers = [\"a\"]\n[dependencies]\njson = { from = \"monorepo\" }\n");
-        assert_eq!(d.line, 5);
+        let d = bad("format: 1\nworkspace:\n  members:\n    - a\ndependencies:\n  json:\n    from: monorepo\n");
+        assert_eq!(d.line, 7);
         assert!(d.msg.contains("only meaningful in a member"));
-        assert!(bad("format = 1\n[workspace]\nmembers = [\"a\"]\n[[exception]]\npackage = \"json\"\nversion = \"1.2.0\"\nmembers = [\"a\"]\n").msg.contains("needs `reason`"));
+        assert!(bad("format: 1\nworkspace:\n  members:\n    - a\nexception:\n  - package: json\n    version: 1.2.0\n    members:\n      - a\n").msg.contains("needs `reason`"));
         assert!(
-            bad("format = 1\n[workspace]\nmembers = [\"a\"]\n[exception]\n")
+            bad("format: 1\nworkspace:\n  members:\n    - a\nexception:\n  package: json\n")
                 .msg
-                .contains("[[exception]]")
+                .contains("list of entries")
         );
     }
 

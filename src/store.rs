@@ -350,7 +350,7 @@ mod tests {
 
     fn sample(dir: &Path) {
         fs::create_dir_all(dir.join("src")).unwrap();
-        fs::write(dir.join("islet.toml"), "format = 1\n").unwrap();
+        fs::write(dir.join("islet.yaml"), "format: 1\n").unwrap();
         fs::write(dir.join("src/main.pel"), "fn main() {}\n").unwrap();
     }
 
@@ -362,9 +362,9 @@ mod tests {
         // Write the files in the opposite order.
         fs::create_dir_all(b.join("src")).unwrap();
         fs::write(b.join("src/main.pel"), "fn main() {}\n").unwrap();
-        fs::write(b.join("islet.toml"), "format = 1\n").unwrap();
+        fs::write(b.join("islet.yaml"), "format: 1\n").unwrap();
         assert_eq!(tree_hash(&a).unwrap(), tree_hash(&b).unwrap());
-        fs::write(b.join("islet.toml"), "format = 2\n").unwrap();
+        fs::write(b.join("islet.yaml"), "format: 2\n").unwrap();
         assert_ne!(tree_hash(&a).unwrap(), tree_hash(&b).unwrap());
     }
 
@@ -380,9 +380,9 @@ mod tests {
         assert_eq!(store.list().unwrap(), vec![h1.clone()]);
         assert_eq!(store.verify(&h1).unwrap(), Verdict::Ok);
         let info = store.info().unwrap();
-        assert_eq!((info.trees, info.bytes), (1, 11 + 13));
+        assert_eq!((info.trees, info.bytes), (1, 10 + 13));
         // Stored files are read-only.
-        let f = store.path_of(&h1).unwrap().join("islet.toml");
+        let f = store.path_of(&h1).unwrap().join("islet.yaml");
         assert!(fs::metadata(&f).unwrap().permissions().readonly());
     }
 
@@ -411,8 +411,8 @@ mod tests {
         let dest = proj.join("deps").join("wave");
         store.link(&h, &dest).unwrap();
         assert_eq!(
-            fs::read_to_string(dest.join("islet.toml")).unwrap(),
-            "format = 1\n"
+            fs::read_to_string(dest.join("islet.yaml")).unwrap(),
+            "format: 1\n"
         );
         assert!(store.link(&h, &dest).is_err(), "existing link is refused");
     }

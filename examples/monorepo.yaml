@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://pelagolang.github.io/website/schema/monorepo/1.json
+format: 1
+
+workspace:
+  members:
+    - libs/*
+    - apps/*
+
+# Shared dependency table (our catalog). Members write `from: monorepo`.
+dependencies:
+  json: 1.5.0
+  json/v2: 2.0.1
+  uart:
+    version: 0.3.0
+    target: avr-atmega328p
+
+# One version per package and major is the rule. A split is deliberate and reviewed.
+exception:
+  - package: json
+    version: 1.2.0
+    members:
+      - apps/legacy-export
+    reason: Its output format test fails on 1.5; fix tracked separately.
+
+cache:
+  remote: https://cache.example.org/islet
