@@ -33,7 +33,7 @@ Symbol ids are the file names without the extension: `islet-mark`, `islet-horizo
 |---|---|
 | `logo/` | `islet-mark`, `islet-horizontal`, `islet-stacked`, each as colour (`.svg`, for light backgrounds), `-dark` (for dark backgrounds), `-black` and `-white` (one colour). PNGs on a transparent background: mark 1024, horizontal 2000 wide, stacked 1200 wide. |
 | `icon/` | App icon `islet-icon.svg` (dark tile) and `islet-icon-light.svg` (sand tile); PNG ladder 16 to 1024; `sprite.svg`; `favicon.svg`, `favicon.ico` (16, 32, 48), `islet.ico` (16 to 256), `islet.icns` (16 to 1024); `apple-touch-icon-180.png`, `android-chrome-192.png`, `android-chrome-512.png`, `maskable-512.png`, `mstile-150.png`; round avatars `avatar-512.png` and `avatar-light-512.png`. |
-| `editor/` | `vscode-icon-256.png` and `file-icons/`: icons for `islet.toml`, `islet.lock` and `monorepo.toml` (`alt/` holds an option without loose blocks for the last), each with a `-dark` variant for dark themes, as SVG and 128px PNG. |
+| `editor/` | `vscode-icon-256.png` and `file-icons/`: icons for `islet.toml`, `islet.lock` and `monorepo.toml`, each with a `-dark` variant for dark themes, as SVG and 128px PNG. |
 | `spec/` | Spec sheets: mark construction on the 128 grid, how to draw the cube and the trio step by step (`cube-construction`), the hexagon shell step by step (`shell-construction`), app icon corner radius and safe areas, lockup clear space and minimum sizes. Generated, with Outfit embedded. |
 | `fonts/` | Outfit (variable font) and its SIL OFL licence. Embedded in the spec sheets; the logo outlines do not need it. |
 | `previews/` | Exploration boards from the design process (round 9 to the palette). Not generated. |

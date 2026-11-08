@@ -199,7 +199,7 @@ def icons():
 FILES = (  # file name, what it holds
     ("islet-toml", "one cube: a package"),
     ("islet-lock", "a cube with a shackle: locked"),
-    ("monorepo-toml", "three cubes: many packages"),
+    ("monorepo-toml", "a cube of blocks: many packages"),
 )
 
 
@@ -211,21 +211,11 @@ def rounded_cube(cx, cy, r, tones, rho):
     return f'<clipPath id="{cid}"><path d="{rpath(pts, rho)}"/></clipPath><g clip-path="url(#{cid})">' + cube(cx, cy, r, *tones) + "</g>"
 
 
-# The dissolving cube: 3 x 3 x 3 small cubes, coming apart from the top centre. REMOVED lists the blocks
-# (x, y, z) that have already gone; DRIFT are loose blocks floating up and away (x, y, edge, colour).
-REMOVED = {(0, 0, 2), (1, 0, 2), (0, 1, 2), (0, 0, 1)}
-DRIFT = ((64, 32, 5.5, "sun"), (55, 25, 3.6, "green"), (72, 24, 3.4, "gold"))
-
-
-def dissolving_cube(pal, loose=True, s=12, cx=64, base=73):
-    """A cube made of 27 small cubes that comes apart block by block from the top centre."""
-    voxels = [(x + y + z, x, y, z) for x in range(3) for y in range(3) for z in range(3) if (x, y, z) not in REMOVED]
+def block_cube(pal, s=12, cx=64, base=66):
+    """A cube made of 27 small cubes (3 x 3 x 3), drawn back to front with a small gap between blocks."""
     out = ""
-    for _, x, y, z in sorted(voxels):
+    for _, x, y, z in sorted((x + y + z, x, y, z) for x in range(3) for y in range(3) for z in range(3)):
         out += cube(cx + (x - y) * K * s, base + (x + y) * 0.5 * s - z * s, s * 0.88, *tone(pal["gold"]))
-    if loose:
-        for (x, y, e, c) in DRIFT:
-            out += cube(x, y, e, *tone(pal[c]))
     return out
 
 
@@ -248,14 +238,13 @@ def file_icon(name, dark):
             + f'<circle cx="91" cy="94.2" r="2" fill="{pal["sun"]}"/><rect x="90" y="95" width="2" height="3.6" rx="1" fill="{pal["sun"]}"/>'
         )
     else:
-        glyph = dissolving_cube(pal, loose=not name.endswith("-b"))
+        glyph = block_cube(pal)
     return tile + glyph
 
 
 def file_icons():
     out = {}
     for dark, suf in ((False, ""), (True, "-dark")):
-        out[f"editor/file-icons/alt/monorepo-toml-b{suf}.svg"] = SVG_OPEN % "0 0 128 128" + file_icon("monorepo-toml-b", dark) + "</svg>"
         for name, _ in FILES:
             out[f"editor/file-icons/{name}{suf}.svg"] = SVG_OPEN % "0 0 128 128" + file_icon(name, dark) + "</svg>"
     return out
@@ -913,7 +902,7 @@ def main():
     job("icon/avatar.svg", "icon/avatar-512.png", 512)
     job("icon/avatar-light.svg", "icon/avatar-light-512.png", 512)
     job("icon/islet-icon.svg", "editor/vscode-icon-256.png", 256)
-    for f in sorted(glob.glob(str(BRAND / "editor/file-icons/*.svg")) + glob.glob(str(BRAND / "editor/file-icons/alt/*.svg"))):
+    for f in sorted(glob.glob(str(BRAND / "editor/file-icons/*.svg"))):
         rel = os.path.relpath(f, BRAND).replace(os.sep, "/")
         job(rel, rel[:-4] + "-128.png", 128)
     for n, w, h, d, t in SOCIAL:
