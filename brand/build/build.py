@@ -219,19 +219,6 @@ def block_cube(pal, s=12, cx=64, base=66):
     return out
 
 
-def rounded_block_cube(pal, seam, s=12, cx=64, base=66):
-    """The 27-block cube with its outer outline rounded: full-size blocks, thin seams in the tile colour, clipped."""
-    _uid[0] += 1
-    cid = f"islet-bc-{_uid[0]}"
-    r = 3 * s
-    pts = [(cx + r * math.cos(math.radians(-90 + 60 * k)), base + r * math.sin(math.radians(-90 + 60 * k))) for k in range(6)]
-    blocks = ""
-    for _, x, y, z in sorted((x + y + z, x, y, z) for x in range(3) for y in range(3) for z in range(3)):
-        blocks += cube(cx + (x - y) * K * s, base + (x + y) * 0.5 * s - z * s, s, *tone(pal["gold"]))
-    blocks = blocks.replace("/>", f' stroke="{seam}" stroke-width="1" stroke-linejoin="round"/>')
-    return f'<clipPath id="{cid}"><path d="{rpath(pts, 15)}"/></clipPath><g clip-path="url(#{cid})">{blocks}</g>'
-
-
 def file_icon(name, dark):
     """A rounded hexagon tile (the shell) with the cubes inside. No page outline: the shape is Islet's own."""
     pal = DARK  # the cubes always use the bright palette; the tile changes with the theme
@@ -251,14 +238,13 @@ def file_icon(name, dark):
             + f'<circle cx="91" cy="94.2" r="2" fill="{pal["sun"]}"/><rect x="90" y="95" width="2" height="3.6" rx="1" fill="{pal["sun"]}"/>'
         )
     else:
-        glyph = rounded_block_cube(pal, fill) if name.endswith("-rounded") else block_cube(pal)
+        glyph = block_cube(pal)
     return tile + glyph
 
 
 def file_icons():
     out = {}
     for dark, suf in ((False, ""), (True, "-dark")):
-        out[f"editor/file-icons/alt/monorepo-toml-rounded{suf}.svg"] = SVG_OPEN % "0 0 128 128" + file_icon("monorepo-toml-rounded", dark) + "</svg>"
         for name, _ in FILES:
             out[f"editor/file-icons/{name}{suf}.svg"] = SVG_OPEN % "0 0 128 128" + file_icon(name, dark) + "</svg>"
     return out
@@ -867,8 +853,151 @@ def spec_shell():
     return spec_head(1800, "Shell construction", "How to draw the hexagon shell around the cubes. Pink: construction. All numbers are on the 128 grid.", 1040) + body + "</svg>"
 
 
+def _icon_spec(title, sub, art, guides, notes, extra_rows=()):
+    """One file-icon spec sheet: the drawing on the 128 grid at 5x with guides, notes on the right."""
+    S, ox, oy = 5, 70, 140
+    body = grid(ox, oy, S) + f'<g transform="translate({ox} {oy}) scale({S})">{art}</g>' + guides(ox, oy, S)
+    right = ox + 128 * S + 60
+    y = 180
+    for head, text in notes:
+        body += label(right, y, head, 15, weight=700, fill=LIGHT["shell"])
+        t, ly = wrap(text, right, y + 22, 14, 46)
+        body += t
+        y = ly + 38
+    for r, h in extra_rows:
+        body += r(right, y + 14)
+        y += h
+    return spec_head(right + 520, title, sub, max(int(y) + 40, 820)) + body + "</svg>"
+
+
+def _tile_fill(dark=False):
+    return "#0F2F37" if dark else DEEP
+
+
+def spec_file_tile():
+    def guides(ox, oy, S):
+        px = lambda u: ox + u * S
+        py = lambda u: oy + u * S
+        g = ""
+        for rr, d in ((54, "6 4"), (49.5, "2 4"), (58.5, "2 4")):
+            g += f'<circle cx="{px(64)}" cy="{py(64)}" r="{rr * S}" fill="none" stroke="{GUIDE}" stroke-width="1.2" stroke-dasharray="{d}"/>'
+        g += line(px(64), py(2), px(64), py(126), GUIDE, 1, "3 5") + line(px(2), py(64), px(126), py(64), GUIDE, 1, "3 5")
+        g += dim(px(64), py(4), px(64 + 54 * 1), py(4), "", 1) if False else ""
+        g += dim(px(64), py(122), px(118), py(122), "R 54", 1, 12)
+        g += dim(px(114), py(64), px(123), py(64), "", 1, 12) if False else ""
+        return g
+
+    notes = [
+        ("What it is", "The tile every file icon sits on: a rounded hexagon with a point on top, the same shape as the logo's shell, filled and outlined. It replaces the page outline other icon sets use."),
+        ("Shape", "Regular hexagon, radius 54 to the centre of the line, centred on (64, 64). Corners rounded with a radius of 14, built as on the shell sheet: a curve starting 14 back from each corner."),
+        ("Line", "Stroke 9 wide with round joins, so the line runs from 49.5 to 58.5 from the centre. Colour: the dark-background shell teal #4FD6D0 on both themes."),
+        ("Fill", "Light theme: Deep #08262D. Dark theme: #0F2F37, a little lighter than the editor's dark page so the tile still reads."),
+        ("Room inside", "The inner area is about 99 wide. Glyphs stay within a circle of radius 36 around (64, 66) so they never touch the line."),
+        ("Differences from the logo shell", "Radius 54 and stroke 9, against 52 and 11 for the logo, so the glyph has more room at 16 px."),
+    ]
+    art = f'<path d="{rpath([(64 + 54 * math.cos(math.radians(-90 + 60 * k)), 64 + 54 * math.sin(math.radians(-90 + 60 * k))) for k in range(6)], 14)}" fill="{DEEP}" stroke="{DARK["shell"]}" stroke-width="9" stroke-linejoin="round"/>'
+    return _icon_spec("File icon tile", "The hexagon every file icon sits on. Pink: construction lines on the 128 grid.", art, guides, notes)
+
+
+def spec_file_toml():
+    r, cy, rho = 28, 66, 12
+
+    def guides(ox, oy, S):
+        px = lambda u: ox + u * S
+        py = lambda u: oy + u * S
+        g = f'<circle cx="{px(64)}" cy="{py(cy)}" r="{r * S}" fill="none" stroke="{GUIDE}" stroke-width="1.2" stroke-dasharray="4 4"/>'
+        g += line(px(64), py(2), px(64), py(126), GUIDE, 1, "3 5") + line(px(2), py(cy), px(126), py(cy), GUIDE, 1, "3 5")
+        g += f'<circle cx="{px(64)}" cy="{py(cy)}" r="3.5" fill="{GUIDE}"/>' + label(px(64) + 8, py(cy) + 18, "(64, 66)", 12, "start", GUIDE, 700)
+        g += dim(px(64 + K * r), py(cy + r + 8), px(64), py(cy + r + 8), "", 1) if False else ""
+        g += dim(px(64 - K * r), py(104), px(64 + K * r), py(104), "2 x 0.866 r = 48.5", 1, 12)
+        g += dim(px(104), py(cy - r), px(104), py(cy + r), "2 r = 56", 1, 12)
+        return g
+
+    notes = [
+        ("What it is", "islet.toml: one package, drawn as one cube. It is the single cube of the mark, on its own, with its outer outline rounded."),
+        ("Cube", "Isometric cube of edge r = 28, centred on (64, 66). Drawn as on the cube sheet: a hexagon of radius 28 split into top, left and right faces by three lines from the centre."),
+        ("Colour", "Gold #FFD15C. Top face mixed 25 % toward white, left face as is, right face mixed 22 % toward black. No outlines."),
+        ("Rounding", "Only the outer outline is rounded, with a radius of 12 (0.43 of the edge, the same ratio as the logo's cubes: 7 on 16). The cube is clipped to a rounded hexagon of radius 28; the edges between faces stay crisp."),
+        ("Position", "Two units below the tile's centre, like the trio in the logo. The glyph stays inside the radius-36 circle."),
+    ]
+    return _icon_spec("File icon: islet.toml", "One rounded cube on the tile. Pink: construction.", file_icon("islet-toml", False), guides, notes)
+
+
+def spec_file_lock():
+    def guides(ox, oy, S):
+        px = lambda u: ox + u * S
+        py = lambda u: oy + u * S
+        g = f'<circle cx="{px(91)}" cy="{py(92)}" r="{17 * S}" fill="none" stroke="{GUIDE}" stroke-width="1.2" stroke-dasharray="4 4"/>'
+        g += f'<circle cx="{px(91)}" cy="{py(92)}" r="{22 * S}" fill="none" stroke="{GUIDE}" stroke-width="1" stroke-dasharray="2 4"/>'
+        g += f'<circle cx="{px(64)}" cy="{py(64)}" r="{27 * S}" fill="none" stroke="{GUIDE}" stroke-width="1.2" stroke-dasharray="4 4"/>'
+        g += f'<circle cx="{px(91)}" cy="{py(92)}" r="3.5" fill="{GUIDE}"/>' + label(px(91) + 8, py(92) + 52, "(91, 92)", 12, "start", GUIDE, 700)
+        g += f'<circle cx="{px(64)}" cy="{py(64)}" r="3.5" fill="{GUIDE}"/>' + label(px(64) - 8, py(64) - 10, "(64, 64)", 12, "end", GUIDE, 700)
+        g += dim(px(74), py(112), px(108), py(112), "badge 34", 1, 12)
+        return g
+
+    def zoom(right, y):
+        # the padlock drawn large with its numbers
+        Z = 9
+        ox, oy = right, y + 10
+        out = label(right, y - 8, "The padlock, drawn 9 times larger", 15, weight=700, fill=LIGHT["shell"])
+        pal = DARK
+        out += f'<rect x="{ox - 10}" y="{oy}" width="260" height="200" rx="8" fill="{pal["sun"]}"/>'
+        out += f'<g transform="translate({ox + 130 - 91 * Z} {oy + 100 - 92 * Z}) scale({Z})">'
+        out += f'<path d="M85.5 90V86.5a5.5 5.5 0 0 1 11 0V90" fill="none" stroke="{pal["ink"]}" stroke-width="3.2" stroke-linecap="round"/><rect x="83" y="89" width="16" height="12.5" rx="3.2" fill="{pal["ink"]}"/><circle cx="91" cy="94.2" r="2" fill="{pal["sun"]}"/><rect x="90" y="95" width="2" height="3.6" rx="1" fill="{pal["sun"]}"/></g>'
+        return out
+
+    notes = [
+        ("What it is", "islet.lock: a package that is pinned. The rounded cube of islet.toml with a padlock badge, so the two files read as a pair."),
+        ("Cube", "As the islet.toml cube but edge 27 and centred on the tile centre (64, 64), so the lock file never pushes the cube off centre. Gold #FFD15C, rounded outline radius 12."),
+        ("Badge", "A circle of radius 17 centred on (91, 92) in Sunburn #FF8556. It overlaps the cube's lower right corner."),
+        ("Ring", "A 5 wide ring in the tile colour around the badge cuts it away from the cube. The ring is the badge's stroke, so it is drawn with the circle."),
+        ("Padlock", "Shackle: a path from (85.5, 90) up 3.5, a half circle of radius 5.5 and back down to (96.5, 90), stroke 3.2, round caps, Sand #FFF1C9. Body: a 16 x 12.5 rounded rectangle at (83, 89), corner radius 3.2, Sand. Keyhole: a circle of radius 2 at (91, 94.2) and a 2 x 3.6 slot below it, both in Sunburn."),
+        ("Why a badge", "The cube carries the meaning 'a package' for every Islet file; the badge says what this file does to it."),
+    ]
+    return _icon_spec("File icon: islet.lock", "The rounded cube with a padlock badge. Pink: construction.", file_icon("islet-lock", False), guides, notes, ((zoom, 250),))
+
+
+def spec_file_monorepo():
+    s, cx, base = 12, 64, 66
+
+    def guides(ox, oy, S):
+        px = lambda u: ox + u * S
+        py = lambda u: oy + u * S
+        g = ""
+        # centres of the 27 blocks
+        for x in range(3):
+            for y in range(3):
+                for z in range(3):
+                    g += f'<circle cx="{px(cx + (x - y) * K * s):.1f}" cy="{py(base + (x + y) * 0.5 * s - z * s):.1f}" r="2" fill="{GUIDE}" opacity="0.7"/>'
+        g += f'<circle cx="{px(64)}" cy="{py(66)}" r="{36 * S}" fill="none" stroke="{GUIDE}" stroke-width="1.2" stroke-dasharray="4 4"/>'
+        # the three axis steps from block (0,0,0)
+        o = (cx, base + 0)
+        for (dx, dy, name) in ((K * s, 0.5 * s, "+x"), (-K * s, 0.5 * s, "+y"), (0, -s, "+z")):
+            x0, y0 = px(o[0]), py(o[1])
+            g += line(x0, y0, px(o[0] + dx * 1), py(o[1] + dy * 1), "#12A150", 3)
+            g += label(px(o[0] + dx * 1.45), py(o[1] + dy * 1.45) + 5, name, 13, "middle", "#0b7a3b", 700)
+        return g
+
+    def steps(right, y):
+        out = label(right, y, "Block positions", 15, weight=700, fill=LIGHT["shell"])
+        rows = ["block (x, y, z), each 0, 1 or 2", "centre x = 64 + (x - y) x 10.39", "centre y = 66 + (x + y) x 6 - z x 12", "drawn edge = 0.88 x 12 = 10.56", "order: back to front, lowest x + y + z first"]
+        for i, t in enumerate(rows):
+            out += label(right, y + 26 + i * 22, t, 14, fill=INK)
+        return out
+
+    notes = [
+        ("What it is", "monorepo.toml: many packages in one repository, drawn as a cube built of 27 small cubes (3 x 3 x 3), each one a package."),
+        ("Block", "Each block is a cube as on the cube sheet, with an edge of 12 on the grid. It is drawn at 0.88 of that (10.56) so a thin gap of the tile colour shows between neighbours."),
+        ("Grid", "A block at (x, y, z) sits 12 x 0.866 = 10.39 to the right and 6 down for each step in x, 10.39 to the left and 6 down for each step in y, and 12 up for each step in z. The middle block (1, 1, 1) is on the glyph centre (64, 66)."),
+        ("Order", "Draw back to front: sort the blocks by x + y + z, lowest first, so nearer blocks cover farther ones."),
+        ("Colour", "All blocks Gold #FFD15C with the usual three faces. One colour keeps it quiet next to the other two icons; the number of blocks carries the meaning."),
+        ("Size", "The whole cube is a hexagon of radius 36 (3 blocks). It fills the same space as the single cube on the other two icons."),
+    ]
+    return _icon_spec("File icon: monorepo.toml", "A cube of 27 blocks on the tile. Pink: construction; green arrows: one step along each axis.", file_icon("monorepo-toml", False), guides, notes, ((steps, 150),))
+
+
 def specs():
-    return {"spec/mark-construction.svg": spec_construction(), "spec/icon-construction.svg": spec_icon(), "spec/lockup-clear-space.svg": spec_lockup(), "spec/cube-construction.svg": spec_cube(), "spec/shell-construction.svg": spec_shell()}
+    return {"spec/mark-construction.svg": spec_construction(), "spec/icon-construction.svg": spec_icon(), "spec/lockup-clear-space.svg": spec_lockup(), "spec/cube-construction.svg": spec_cube(), "spec/shell-construction.svg": spec_shell(), "spec/file-icon-tile.svg": spec_file_tile(), "spec/file-icon-toml.svg": spec_file_toml(), "spec/file-icon-lock.svg": spec_file_lock(), "spec/file-icon-monorepo.svg": spec_file_monorepo()}
 
 
 # ---------------------------------------------------------------- main
@@ -916,7 +1045,7 @@ def main():
     job("icon/avatar.svg", "icon/avatar-512.png", 512)
     job("icon/avatar-light.svg", "icon/avatar-light-512.png", 512)
     job("icon/islet-icon.svg", "editor/vscode-icon-256.png", 256)
-    for f in sorted(glob.glob(str(BRAND / "editor/file-icons/*.svg")) + glob.glob(str(BRAND / "editor/file-icons/alt/*.svg"))):
+    for f in sorted(glob.glob(str(BRAND / "editor/file-icons/*.svg"))):
         rel = os.path.relpath(f, BRAND).replace(os.sep, "/")
         job(rel, rel[:-4] + "-128.png", 128)
     for n, w, h, d, t in SOCIAL:
