@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pelagolang.github.io/website/schema/monorepo.toml/1.json",
-  "title": "monorepo.toml",
-  "description": "The root file of a monorepo: its members, the shared dependency table and the exceptions to one version per package. Validates the TOML data model, which matches JSON.",
+  "$id": "https://pelagolang.github.io/website/schema/monorepo/1.json",
+  "title": "monorepo.yaml",
+  "description": "The root file of a monorepo: its members, the shared dependency table and the exceptions to one version per package. Validates the YAML data model, which matches JSON.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -22,7 +22,7 @@
       ],
       "properties": {
         "members": {
-          "description": "Directories or globs of member packages. Each holds an islet.toml.",
+          "description": "Directories or globs of member packages. Each holds an islet.yaml.",
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
@@ -42,7 +42,7 @@
       }
     },
     "dependencies": {
-      "description": "The shared dependency table (our catalog). Members point at an entry with { from = \"monorepo\" }. Values are minimum versions; the workspace resolves one version per package and major.",
+      "description": "The shared dependency table (our catalog). Members point at an entry with `from: monorepo`. Values are minimum versions; the workspace resolves one version per package and major.",
       "type": "object",
       "propertyNames": {
         "pattern": "^[a-z][a-z0-9-]*(/v[2-9][0-9]*)?$"

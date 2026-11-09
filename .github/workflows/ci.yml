@@ -12,7 +12,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install jsonschema==4.23.0
+      - run: pip install jsonschema==4.23.0 pyyaml==6.0.2
       - name: Validate schemas and examples
         run: python3 tools/check_schemas.py
 

@@ -18,8 +18,8 @@ and [docs/plan.md](docs/plan.md) for the milestones.
   reads next to yours.
 - **One global store.** Every package version is stored once, named by its BLAKE3 hash. Projects link into the store
   (junctions on Windows). One store per volume, in `.islet` at the drive root.
-- **Two manifests, one owner per key.** `islet.toml` holds package identity, dependencies, workspace, root-only
-  generators and C link inputs. `pelago.toml` stays the compiler's file. `islet.lock` is TOML and is committed.
+- **Two manifests, one owner per key.** `islet.yaml` holds package identity, dependencies, workspace, root-only
+  generators and C link inputs. `pelago.yaml` stays the compiler's file. Every file is YAML in one strict subset, and `islet.lock` is committed.
 - **Majors in the import path** (`"json/v2"`), minimal version selection, and a compiler-checked public-API diff for
   `islet update`.
 - **No build scripts.** Generators run only through `islet regen`, for the root project; their output is hashed,
@@ -28,7 +28,7 @@ and [docs/plan.md](docs/plan.md) for the milestones.
 
 ## Repository layout
 
-- `schema/`: JSON Schemas for `islet.toml` (and later `islet.lock`). Published from the website repo to
+- `schema/`: JSON Schemas for `islet.yaml` and `monorepo.yaml`. Published from the website repo to
   <https://pelagolang.github.io/website/schema/>; the tool embeds the same files.
 - `docs/`: design and plan; [`docs/brand.md`](docs/brand.md) is the brand record.
 - `brand/`: logo, icons, file icons and social images, with the script that builds them.

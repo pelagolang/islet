@@ -197,9 +197,9 @@ def icons():
 # ---------------------------------------------------------------- file icons
 
 FILES = (  # file name, what it holds
-    ("islet-toml", "one cube: a package"),
+    ("islet-yaml", "one cube: a package"),
     ("islet-lock", "a cube with a shackle: locked"),
-    ("monorepo-toml", "a cube of blocks: many packages"),
+    ("monorepo-yaml", "a cube of blocks: many packages"),
 )
 
 
@@ -227,7 +227,7 @@ def file_icon(name, dark):
         f'<path d="{rpath([(64 + 54 * math.cos(math.radians(-90 + 60 * k)), 64 + 54 * math.sin(math.radians(-90 + 60 * k))) for k in range(6)], 14)}" '
         f'fill="{fill}" stroke="{pal["shell"]}" stroke-width="9" stroke-linejoin="round"/>'
     )
-    if name == "islet-toml":
+    if name == "islet-yaml":
         glyph = rounded_cube(64, 66, 28, tone(pal["gold"]), 12)
     elif name == "islet-lock":
         glyph = (
@@ -899,7 +899,7 @@ def spec_file_tile():
     return _icon_spec("File icon tile", "The hexagon every file icon sits on. Pink: construction lines on the 128 grid.", art, guides, notes)
 
 
-def spec_file_toml():
+def spec_file_yaml():
     r, cy, rho = 28, 66, 12
 
     def guides(ox, oy, S):
@@ -914,13 +914,13 @@ def spec_file_toml():
         return g
 
     notes = [
-        ("What it is", "islet.toml: one package, drawn as one cube. It is the single cube of the mark, on its own, with its outer outline rounded."),
+        ("What it is", "islet.yaml: one package, drawn as one cube. It is the single cube of the mark, on its own, with its outer outline rounded."),
         ("Cube", "Isometric cube of edge r = 28, centred on (64, 66). Drawn as on the cube sheet: a hexagon of radius 28 split into top, left and right faces by three lines from the centre."),
         ("Colour", "Gold #FFD15C. Top face mixed 25 % toward white, left face as is, right face mixed 22 % toward black. No outlines."),
         ("Rounding", "Only the outer outline is rounded, with a radius of 12 (0.43 of the edge, the same ratio as the logo's cubes: 7 on 16). The cube is clipped to a rounded hexagon of radius 28; the edges between faces stay crisp."),
         ("Position", "Two units below the tile's centre, like the trio in the logo. The glyph stays inside the radius-36 circle."),
     ]
-    return _icon_spec("File icon: islet.toml", "One rounded cube on the tile. Pink: construction.", file_icon("islet-toml", False), guides, notes)
+    return _icon_spec("File icon: islet.yaml", "One rounded cube on the tile. Pink: construction.", file_icon("islet-yaml", False), guides, notes)
 
 
 def spec_file_lock():
@@ -947,8 +947,8 @@ def spec_file_lock():
         return out
 
     notes = [
-        ("What it is", "islet.lock: a package that is pinned. The rounded cube of islet.toml with a padlock badge, so the two files read as a pair."),
-        ("Cube", "As the islet.toml cube but edge 27 and centred on the tile centre (64, 64), so the lock file never pushes the cube off centre. Gold #FFD15C, rounded outline radius 12."),
+        ("What it is", "islet.lock: a package that is pinned. The rounded cube of islet.yaml with a padlock badge, so the two files read as a pair."),
+        ("Cube", "As the islet.yaml cube but edge 27 and centred on the tile centre (64, 64), so the lock file never pushes the cube off centre. Gold #FFD15C, rounded outline radius 12."),
         ("Badge", "A circle of radius 17 centred on (91, 92) in Sunburn #FF8556. It overlaps the cube's lower right corner."),
         ("Ring", "A 5 wide ring in the tile colour around the badge cuts it away from the cube. The ring is the badge's stroke, so it is drawn with the circle."),
         ("Padlock", "Shackle: a path from (85.5, 90) up 3.5, a half circle of radius 5.5 and back down to (96.5, 90), stroke 3.2, round caps, Sand #FFF1C9. Body: a 16 x 12.5 rounded rectangle at (83, 89), corner radius 3.2, Sand. Keyhole: a circle of radius 2 at (91, 94.2) and a 2 x 3.6 slot below it, both in Sunburn."),
@@ -986,14 +986,14 @@ def spec_file_monorepo():
         return out
 
     notes = [
-        ("What it is", "monorepo.toml: many packages in one repository, drawn as a cube built of 27 small cubes (3 x 3 x 3), each one a package."),
+        ("What it is", "monorepo.yaml: many packages in one repository, drawn as a cube built of 27 small cubes (3 x 3 x 3), each one a package."),
         ("Block", "Each block is a cube as on the cube sheet, with an edge of 12 on the grid. It is drawn at 0.88 of that (10.56) so a thin gap of the tile colour shows between neighbours."),
         ("Grid", "A block at (x, y, z) sits 12 x 0.866 = 10.39 to the right and 6 down for each step in x, 10.39 to the left and 6 down for each step in y, and 12 up for each step in z. The middle block (1, 1, 1) is on the glyph centre (64, 66)."),
         ("Order", "Draw back to front: sort the blocks by x + y + z, lowest first, so nearer blocks cover farther ones."),
         ("Colour", "All blocks Gold #FFD15C with the usual three faces. One colour keeps it quiet next to the other two icons; the number of blocks carries the meaning."),
         ("Size", "The whole cube is a hexagon of radius 36 (3 blocks). It fills the same space as the single cube on the other two icons."),
     ]
-    return _icon_spec("File icon: monorepo.toml", "A cube of 27 blocks on the tile. Pink: construction; green arrows: one step along each axis.", file_icon("monorepo-toml", False), guides, notes, ((steps, 150),))
+    return _icon_spec("File icon: monorepo.yaml", "A cube of 27 blocks on the tile. Pink: construction; green arrows: one step along each axis.", file_icon("monorepo-yaml", False), guides, notes, ((steps, 150),))
 
 
 # ---------------------------------------------------------------- step-by-step file icon sheets
@@ -1113,7 +1113,7 @@ def steps_tile():
     return step_sheet("File icon tile: construction", "How to draw the hexagon tile, step by step. Pink: construction.", panels)
 
 
-def steps_toml():
+def steps_yaml():
     r, cx, cy, rho = 28, 64, 66, 12
     pts = _hex_pts(cx, cy, r)
     t0, t1, t2 = tone(DARK["gold"])
@@ -1135,10 +1135,10 @@ def steps_toml():
          lambda u: rounded_cube(cx, cy, r, (t0, t1, t2), rho) + _gp(rpath(pts, rho), 1.2, dash="4 4")),
         ("Put it on the tile", "Centre it on (64, 66), two units below the tile centre, like the trio in the logo. It sits inside the radius-36 circle.", (0, 0, 128),
          lambda u: _tile(False) + rounded_cube(cx, cy, r, (t0, t1, t2), rho) + _gc(64, 66, 36, "4 4", 1.4, "#FFC83D") + _gl(64, 4, 64, 124, "3 5", 1, "#FFC83D") + _gl(4, 66, 124, 66, "3 5", 1, "#FFC83D")),
-        ("Done", "islet.toml. Light theme on the left, dark theme on the right; only the tile fill changes.", (0, 0, 128),
-         lambda u: f'<g transform="translate(2 34) scale(0.47)">{file_icon("islet-toml", False)}</g><g transform="translate(66 34) scale(0.47)">{file_icon("islet-toml", True)}</g>'),
+        ("Done", "islet.yaml. Light theme on the left, dark theme on the right; only the tile fill changes.", (0, 0, 128),
+         lambda u: f'<g transform="translate(2 34) scale(0.47)">{file_icon("islet-yaml", False)}</g><g transform="translate(66 34) scale(0.47)">{file_icon("islet-yaml", True)}</g>'),
     ]
-    return step_sheet("File icon islet.toml: construction", "The rounded cube, step by step. Pink: construction.", panels)
+    return step_sheet("File icon islet.yaml: construction", "The rounded cube, step by step. Pink: construction.", panels)
 
 
 def steps_lock():
@@ -1152,7 +1152,7 @@ def steps_lock():
     body = lambda: f'<rect x="83" y="89" width="16" height="12.5" rx="3.2" fill="{pal["ink"]}"/>'
     key = lambda: f'<circle cx="91" cy="94.2" r="2" fill="{pal["sun"]}"/><rect x="90" y="95" width="2" height="3.6" rx="1" fill="{pal["sun"]}"/>'
     panels = [
-        ("The cube, centred", "Draw the rounded gold cube as for islet.toml, but with edge 27 and centred on the tile centre (64, 64). The badge goes on top of it, so the cube never moves.", (0, 0, 128),
+        ("The cube, centred", "Draw the rounded gold cube as for islet.yaml, but with edge 27 and centred on the tile centre (64, 64). The badge goes on top of it, so the cube never moves.", (0, 0, 128),
          lambda u: _tile(False) + cube() + _gl(64, 4, 64, 124, "3 5", 1) + _gl(4, 64, 124, 64, "3 5", 1) + _gd(64, 64, u) + _gt(64 + 5 * u, 64 - 5 * u, "(64, 64)", u)),
         ("Place the badge circle", "Put a circle of radius 17 centred on (91, 92), lower right of the cube. It overlaps the cube's corner but stays inside the tile.", (0, 0, 128),
          lambda u: _tile(False) + cube() + _gc(91, 92, 17, "4 4", 1.6) + _gd(91, 92, u) + _gt(91 - 4 * u, 92 + 32, "(91, 92) r 17", u, "middle")),
@@ -1195,14 +1195,14 @@ def steps_monorepo():
          lambda u: stack([0, 1, 2]) + _gp(_poly_d(_hex_pts(cx, base, 3 * s)), 1.4, dash="4 4")),
         ("Put it on the tile", "The whole cube is a hexagon of radius 36 (3 blocks), centred on (64, 66), the same space as the single cube on the other two icons.", (0, 0, 128),
          lambda u: _tile(False) + stack([0, 1, 2]) + _gc(64, 66, 36, "4 4", 1.4, "#FFC83D")),
-        ("Done", "monorepo.toml. Light theme on the left, dark theme on the right; only the tile fill changes.", (0, 0, 128),
-         lambda u: f'<g transform="translate(2 34) scale(0.47)">{file_icon("monorepo-toml", False)}</g><g transform="translate(66 34) scale(0.47)">{file_icon("monorepo-toml", True)}</g>'),
+        ("Done", "monorepo.yaml. Light theme on the left, dark theme on the right; only the tile fill changes.", (0, 0, 128),
+         lambda u: f'<g transform="translate(2 34) scale(0.47)">{file_icon("monorepo-yaml", False)}</g><g transform="translate(66 34) scale(0.47)">{file_icon("monorepo-yaml", True)}</g>'),
     ]
-    return step_sheet("File icon monorepo.toml: construction", "The block cube, step by step. Pink: construction; green arrows: one step along each axis.", panels)
+    return step_sheet("File icon monorepo.yaml: construction", "The block cube, step by step. Pink: construction; green arrows: one step along each axis.", panels)
 
 
 def specs():
-    return {"spec/mark-construction.svg": spec_construction(), "spec/icon-construction.svg": spec_icon(), "spec/lockup-clear-space.svg": spec_lockup(), "spec/cube-construction.svg": spec_cube(), "spec/shell-construction.svg": spec_shell(), "spec/file-icon-tile.svg": spec_file_tile(), "spec/file-icon-toml.svg": spec_file_toml(), "spec/file-icon-lock.svg": spec_file_lock(), "spec/file-icon-monorepo.svg": spec_file_monorepo(), "spec/file-icon-tile-steps.svg": steps_tile(), "spec/file-icon-toml-steps.svg": steps_toml(), "spec/file-icon-lock-steps.svg": steps_lock(), "spec/file-icon-monorepo-steps.svg": steps_monorepo()}
+    return {"spec/mark-construction.svg": spec_construction(), "spec/icon-construction.svg": spec_icon(), "spec/lockup-clear-space.svg": spec_lockup(), "spec/cube-construction.svg": spec_cube(), "spec/shell-construction.svg": spec_shell(), "spec/file-icon-tile.svg": spec_file_tile(), "spec/file-icon-yaml.svg": spec_file_yaml(), "spec/file-icon-lock.svg": spec_file_lock(), "spec/file-icon-monorepo.svg": spec_file_monorepo(), "spec/file-icon-tile-steps.svg": steps_tile(), "spec/file-icon-yaml-steps.svg": steps_yaml(), "spec/file-icon-lock-steps.svg": steps_lock(), "spec/file-icon-monorepo-steps.svg": steps_monorepo()}
 
 
 # ---------------------------------------------------------------- main
