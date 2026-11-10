@@ -1,8 +1,8 @@
 # Signing and the transparency log
 
-Status: draft for the owner. It builds on the decisions in `docs/design.md` (signing required from day one, designed
-for a very large index, BLAKE3). Nothing here is implemented yet. Questions are at the end, with a recommendation on
-each.
+Status: decided by the owner on 2026-11-10 ("go with your suggestions"; private keys in the OS keychain with a
+file fallback). Built in stages, see section 5. It builds on the decisions in `docs/design.md` (signing required from
+day one, designed for a very large index, BLAKE3).
 
 Conventional or Pelago-specific, as the standing rule asks: the primitives (Ed25519, an append-only Merkle log, signed
 tree heads, witnesses) are conventional and come from the same family as Go's checksum database and Sigstore. What
@@ -33,8 +33,11 @@ beside the tree in the store, and published next to the package.
 - **Algorithm:** Ed25519 (fast, small, no parameter choices, widely implemented). Keys are 32 bytes.
 - **Key id:** `BLAKE3(public key)` in 64 hex digits, written `key:<hex>`. An id is a fingerprint, so there is no
   name registry to trust and nothing to squat.
-- **Where private keys live:** `<store root>/keys/<id>.key`, owner-only, with an optional passphrase. The system
-  keychain (Windows Credential Manager, macOS Keychain, Secret Service) comes later as an option, not a rule.
+- **Where private keys live (owner's decision):** the operating system's key store first, a key file when there is
+  none. macOS: the Keychain (`security`). Linux: the Secret Service (`secret-tool`). Windows: the key is encrypted with
+  the user's DPAPI key (PowerShell) and the ciphertext is kept in `<store root>/keys/`. If the tool is missing or
+  refuses, the key goes to `<store root>/keys/<id>.key`, readable by its owner only, and `islet key gen` says which
+  one it used. Islet calls these system tools; it links no keychain library. `ISLET_KEY_BACKEND=file` forces the file.
 - **Publisher:** a package's `islet.yaml` may name its signing key (`publisher: key:<hex>`); the first release fixes it.
 
 ## 3. Trust: pin the publisher, do not trust a name
@@ -85,18 +88,12 @@ log everyone sees, and that the log only ever grew.
 S-1 and S-2 do not need a network or a registry, so they come first and are useful on their own (a monorepo can sign
 internal packages today).
 
-## 6. Questions
+## 6. Decisions (2026-11-10)
 
-1. **Implementation of Ed25519** (card posted in the thread): recommended `ed25519-dalek`, one audited crate, isolated
-   in `src/sign.rs`. The signing key is read from a file, so the only other need is random bytes at key generation,
-   for which I would use the operating system's generator through the `getrandom` crate (a second tiny dependency)
-   or, if you prefer, read the system source directly with a few lines per operating system.
-2. **Trust model:** pin the signer in the lock on first use, with signed rotation (section 3). Recommended. The
-   alternative is a central list of trusted publishers, which does not scale to a billion users.
-3. **Key id format:** the BLAKE3 fingerprint of the public key (section 2). Recommended over a name or an email.
-4. **Passphrase on private keys:** optional in S-1, with the system keychain as a later option. Recommended; a
-   mandatory passphrase breaks CI.
-5. **Witnesses:** build the cosignature check into S-3 now, so the log does not have a single point of trust later.
-   Recommended, since retrofitting it changes the head format.
-6. **Where the registry lives:** a name for the service and who runs the first witnesses are not decided here; they
-   belong to the registry card.
+1. **Ed25519:** `ed25519-dalek`, one audited crate, isolated in `src/sign.rs`. Random bytes for key generation come
+   from the operating system through the `getrandom` crate.
+2. **Trust model:** pin the signer in the lock on first use, with signed rotation.
+3. **Key id:** the BLAKE3 fingerprint of the public key.
+4. **Private keys:** the OS key store, falling back to a file (section 2). No passphrase in S-1.
+5. **Witnesses:** the cosignature check is part of S-3, so the head format has it from the start.
+6. **The registry's name and the first witnesses** belong to the registry card, not decided here.
