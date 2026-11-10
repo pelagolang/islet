@@ -37,7 +37,8 @@ beside the tree in the store, and published next to the package.
   none. macOS: the Keychain (`security`). Linux: the Secret Service (`secret-tool`). Windows: the key is encrypted with
   the user's DPAPI key (PowerShell) and the ciphertext is kept in `<store root>/keys/`. If the tool is missing or
   refuses, the key goes to `<store root>/keys/<id>.key`, readable by its owner only, and `islet key gen` says which
-  one it used. Islet calls these system tools; it links no keychain library. `ISLET_KEY_BACKEND=file` forces the file.
+  one it used. Islet calls these system tools; it links no keychain library. `ISLET_KEY_BACKEND=file` forces the file. Known limit: macOS's `security` tool takes the secret as an argument, so
+  for a moment it is visible to other processes of the same user; the other systems pass it on standard input.
 - **Publisher:** a package's `islet.yaml` may name its signing key (`publisher: key:<hex>`); the first release fixes it.
 
 ## 3. Trust: pin the publisher, do not trust a name
@@ -80,7 +81,7 @@ log everyone sees, and that the log only ever grew.
 
 | Card | What | Done when |
 |---|---|---|
-| S-1 | `islet key gen`, `islet sign <dir>`, `islet verify <dir>`; the statement format; `.sig` in the store | A tree is signed, verified, and a changed file or a changed version makes verification fail. |
+| S-1 | `islet key gen`, `islet sign <dir>`, `islet verify <dir>`; the statement format; `.sig` in the store | A tree is signed, verified, and a changed file or a changed version makes verification fail. **Built** (signatures live in `<store>/sigs/<tree hash>/<signer>.sig`, outside the tree, since a signature inside it would change its hash). |
 | S-2 | The signer pin in `islet.lock` (with schema and example), `islet trust`, rotation statements | A lock records the signer; a different signer is refused; rotation by the old key is accepted. |
 | S-3 | Log formats: tiles, signed tree heads, inclusion and consistency proofs, witness cosignatures, as a library with test vectors | Proofs verify against a log built in the tests, and tampering with any tile or head is caught. |
 | S-4 | A local test registry that serves tiles, and `islet` fetching with proof checks (this is card I-5) | A package is published, fetched, verified and rejected when tampered with. |
