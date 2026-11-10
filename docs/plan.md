@@ -32,4 +32,4 @@ Each card has a one-line "done when". Order is strict: take from the top.
 
 1. Rust for stage 0, with our own YAML reader and BLAKE3 and one audited signature dependency, or no dependencies at all?
 2. May I start I-1 when a "Doing" slot is free (the project cap is three)?
-3. Should the compiler hook in I-3 be a new `pelago` subcommand, or should `islet` write a resolved map that `pelago build` reads?
+3. ~~Compiler hook~~: settled 2026-11-10, `islet` writes a resolved map that `pelago build` reads.

@@ -406,6 +406,56 @@ fn member_name(s: &str) -> bool {
     !s.is_empty() && !s.contains(' ')
 }
 
+/// A readable picture of a lock: each member, its dependencies, and below each package what it needs.
+pub fn tree_text(l: &Lock) -> String {
+    let by_key: std::collections::BTreeMap<String, &Locked> =
+        l.packages.iter().map(|p| (p.key(), p)).collect();
+    fn pkg(
+        out: &mut String,
+        by_key: &std::collections::BTreeMap<String, &Locked>,
+        key: &str,
+        depth: usize,
+        trail: &mut Vec<String>,
+    ) {
+        out.push_str(&format!("{}{key}", "  ".repeat(depth)));
+        if trail.iter().any(|t| t == key) {
+            out.push_str(" (again)\n");
+            return;
+        }
+        out.push('\n');
+        trail.push(key.to_string());
+        if let Some(p) = by_key.get(key) {
+            for n in &p.dependencies {
+                pkg(out, by_key, n, depth + 1, trail);
+            }
+        }
+        trail.pop();
+    }
+    let mut out = String::new();
+    let mut ms: Vec<&Member> = l.members.iter().collect();
+    ms.sort_by(|a, b| a.path.cmp(&b.path));
+    for m in ms {
+        out.push_str(&format!("{}\n", m.path));
+        let mut ds: Vec<&MemberDep> = m.deps.iter().collect();
+        ds.sort_by(|a, b| a.key.cmp(&b.key));
+        for d in ds {
+            match &d.source {
+                Source::Path(p) => out.push_str(&format!("  {} (member {p})\n", d.key)),
+                Source::Version { version, .. } => {
+                    pkg(
+                        &mut out,
+                        &by_key,
+                        &format!("{}@{version}", d.key),
+                        1,
+                        &mut Vec::new(),
+                    );
+                }
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -489,6 +539,16 @@ mod tests {
                 pkg("json", "1.5.0", 'a', &[]),
             ],
         }
+    }
+
+    #[test]
+    fn the_tree_lists_members_and_what_they_need() {
+        let src = include_str!("../examples/islet.lock");
+        let l = parse_lock("x", src).unwrap();
+        let t = tree_text(&l);
+        assert!(t.contains("apps/dashboard\n"), "{t}");
+        assert!(t.contains("  core (member libs/core)\n"), "{t}");
+        assert!(t.contains("  json/v2@2.0.1\n    units@0.2.4\n"), "{t}");
     }
 
     #[test]

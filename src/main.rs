@@ -1,12 +1,13 @@
-//! Islet, the package manager for Pelago. Stage 0, card I-1: the store.
+//! Islet, the package manager for Pelago. Stage 0: the store, the manifests, the lock and the resolver.
 
 mod blake3;
 mod lock;
 mod manifest;
+mod resolve;
 mod store;
 mod yaml;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use store::{Store, Verdict};
 
@@ -21,6 +22,12 @@ usage:
   islet hash <dir>                 print a folder's hash without storing it
   islet check <file-or-dir>        check islet.yaml, monorepo.yaml and islet.lock, with line numbers
   islet lock fmt <file>            rewrite an islet.lock in its canonical form
+  islet lock <dir> [--index <dir>] [--check]
+                                   resolve a project or workspace and write its islet.lock
+                                   (--check: fail if the lock on disk is not what resolving gives)
+  islet tree <dir>                 print each member's dependencies from the islet.lock
+
+Packages come from the folder given by --index or ISLET_INDEX: <index>/<name>[/vN]/<version>/ holds one package.
 
 The store is the folder named by ISLET_STORE if set; otherwise `.islet` at the drive root on Windows
 and `~/.islet` elsewhere.";
@@ -144,6 +151,57 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             Ok(())
         }
+        ["lock", dir, rest @ ..] => {
+            let mut index: Option<String> = std::env::var("ISLET_INDEX").ok();
+            let mut check = false;
+            let mut it = rest.iter();
+            while let Some(a) = it.next() {
+                match *a {
+                    "--check" => check = true,
+                    "--index" => {
+                        index = Some(it.next().ok_or("--index needs a folder")?.to_string())
+                    }
+                    _ => return Err(USAGE.to_string()),
+                }
+            }
+            let dir = Path::new(dir);
+            let (members, root) = load_workspace(dir)?;
+            let idx = resolve::DirIndex {
+                root: PathBuf::from(index.unwrap_or_default()),
+            };
+            let lock = resolve::resolve_workspace(&members, &root, &idx)?;
+            let text = lock.to_text();
+            let file = dir.join("islet.lock");
+            if check {
+                let on_disk = std::fs::read_to_string(&file)
+                    .map_err(|e| format!("{}: {e}", file.display()))?;
+                if on_disk.replace("\r\n", "\n") != text {
+                    return Err(format!(
+                        "{}: is not what resolving gives; run `islet lock {}`",
+                        file.display(),
+                        dir.display()
+                    ));
+                }
+                println!("ok {}", file.display());
+            } else {
+                std::fs::write(&file, &text).map_err(|e| format!("{}: {e}", file.display()))?;
+                println!(
+                    "wrote {} ({} members, {} packages)",
+                    file.display(),
+                    lock.members.len(),
+                    lock.packages.len()
+                );
+            }
+            Ok(())
+        }
+        ["tree", dir] => {
+            let file = Path::new(dir).join("islet.lock");
+            let shown = file.display().to_string();
+            let src = std::fs::read_to_string(&file).map_err(|e| format!("{shown}: {e}"))?;
+            let l = lock::parse_lock(&shown, &src).map_err(|d| d.to_string())?;
+            print!("{}", lock::tree_text(&l));
+            Ok(())
+        }
         ["store", "put", dir] => {
             let h = open(".")?.put(Path::new(dir)).map_err(|e| e.to_string())?;
             println!("{h}");
@@ -202,6 +260,44 @@ fn run(args: &[String]) -> Result<(), String> {
             Ok(())
         }
         _ => Err(USAGE.to_string()),
+    }
+}
+
+/// Read the workspace at `dir`: its `monorepo.yaml` and every member, or the single project with an `islet.yaml`.
+fn load_workspace(dir: &Path) -> Result<(Vec<resolve::MemberSrc>, manifest::Monorepo), String> {
+    let read = |p: &Path| std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()));
+    let mono = dir.join("monorepo.yaml");
+    let member = |rel: &str, file: PathBuf| -> Result<resolve::MemberSrc, String> {
+        let src = read(&file)?;
+        let manifest = manifest::parse_manifest(&file.display().to_string(), &src)
+            .map_err(|d| d.to_string())?;
+        Ok(resolve::MemberSrc {
+            path: rel.to_string(),
+            manifest,
+        })
+    };
+    if mono.is_file() {
+        let root = manifest::parse_monorepo(&mono.display().to_string(), &read(&mono)?)
+            .map_err(|d| d.to_string())?;
+        let mut out = Vec::new();
+        for rel in resolve::member_paths(dir, &root)? {
+            out.push(member(&rel, dir.join(&rel).join("islet.yaml"))?);
+        }
+        Ok((out, root))
+    } else if dir.join("islet.yaml").is_file() {
+        let empty = manifest::Monorepo {
+            members: Vec::new(),
+            exclude: Vec::new(),
+            dependencies: Vec::new(),
+            exceptions: Vec::new(),
+            remote_cache: None,
+        };
+        Ok((vec![member(".", dir.join("islet.yaml"))?], empty))
+    } else {
+        Err(format!(
+            "{}: no monorepo.yaml or islet.yaml here",
+            dir.display()
+        ))
     }
 }
 

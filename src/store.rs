@@ -13,7 +13,7 @@
 
 use crate::blake3;
 use std::fs;
-use std::io::{self, Read};
+use std::io;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
@@ -56,20 +56,36 @@ pub struct Info {
     pub bytes: u64,
 }
 
-fn hash_file(path: &Path) -> Result<([u8; 32], u64)> {
-    let mut f = fs::File::open(path).map_err(io_err(path))?;
-    let mut h = blake3::Hasher::new();
-    let mut buf = vec![0u8; 64 * 1024];
-    let mut total = 0u64;
-    loop {
-        let n = f.read(&mut buf).map_err(io_err(path))?;
-        if n == 0 {
-            break;
-        }
-        h.update(&buf[..n]);
-        total += n as u64;
+/// The bytes a file contributes to a tree. A text file (valid UTF-8, no NUL byte) has every `\r\n` turned into
+/// `\n`, so a Windows checkout and a Linux checkout of the same package get the same address. A lone `\r` and
+/// every other file are left alone. The store keeps these bytes too, so a stored tree always re-hashes to itself.
+pub fn canonical_bytes(raw: Vec<u8>) -> Vec<u8> {
+    if raw.contains(&0)
+        || std::str::from_utf8(&raw).is_err()
+        || !raw.windows(2).any(|w| w == b"\r\n")
+    {
+        return raw;
     }
-    Ok((h.finalize(), total))
+    let mut out = Vec::with_capacity(raw.len());
+    let mut i = 0;
+    while i < raw.len() {
+        if raw[i] == b'\r' && raw.get(i + 1) == Some(&b'\n') {
+            i += 1;
+            continue;
+        }
+        out.push(raw[i]);
+        i += 1;
+    }
+    out
+}
+
+fn read_canonical(path: &Path) -> Result<Vec<u8>> {
+    Ok(canonical_bytes(fs::read(path).map_err(io_err(path))?))
+}
+
+fn hash_file(path: &Path) -> Result<([u8; 32], u64)> {
+    let bytes = read_canonical(path)?;
+    Ok((blake3::hash(&bytes), bytes.len() as u64))
 }
 
 /// Regular files below `dir` as `(relative path with '/', absolute path)`, sorted by relative path.
@@ -212,7 +228,7 @@ impl Store {
             if let Some(parent) = to.parent() {
                 fs::create_dir_all(parent).map_err(io_err(parent))?;
             }
-            fs::copy(&abs, &to).map_err(io_err(&abs))?;
+            fs::write(&to, read_canonical(&abs)?).map_err(io_err(&to))?;
             set_readonly(&to, true)?;
         }
         // The tree must still hash the same after copying, or the source changed under us.
@@ -366,6 +382,41 @@ mod tests {
         assert_eq!(tree_hash(&a).unwrap(), tree_hash(&b).unwrap());
         fs::write(b.join("islet.yaml"), "format: 2\n").unwrap();
         assert_ne!(tree_hash(&a).unwrap(), tree_hash(&b).unwrap());
+    }
+
+    #[test]
+    fn canonical_bytes_rules() {
+        assert_eq!(canonical_bytes(b"a\r\nb\r\n".to_vec()), b"a\nb\n");
+        assert_eq!(canonical_bytes(b"a\rb\n".to_vec()), b"a\rb\n"); // lone CR stays
+        assert_eq!(canonical_bytes(b"a\r\r\nb".to_vec()), b"a\r\nb"); // only the pair goes
+        assert_eq!(canonical_bytes(b"a\r\n\0".to_vec()), b"a\r\n\0"); // NUL: binary
+        assert_eq!(canonical_bytes(b"\xff\r\n".to_vec()), b"\xff\r\n"); // not UTF-8: binary
+        assert_eq!(canonical_bytes(Vec::new()), b"");
+    }
+
+    #[test]
+    fn crlf_and_lf_checkouts_have_the_same_address() {
+        let lf = scratch("eol-lf");
+        let crlf = scratch("eol-crlf");
+        fs::write(lf.join("a.pel"), "fn main() {\n}\n").unwrap();
+        fs::write(crlf.join("a.pel"), "fn main() {\r\n}\r\n").unwrap();
+        fs::write(lf.join("b.bin"), [1u8, 13, 10, 0]).unwrap();
+        fs::write(crlf.join("b.bin"), [1u8, 13, 10, 0]).unwrap();
+        assert_eq!(tree_hash(&lf).unwrap(), tree_hash(&crlf).unwrap());
+        // A binary file keeps its bytes, so a change there does change the address.
+        fs::write(crlf.join("b.bin"), [1u8, 10, 0]).unwrap();
+        assert_ne!(tree_hash(&lf).unwrap(), tree_hash(&crlf).unwrap());
+    }
+
+    #[test]
+    fn the_store_keeps_lf_text_and_still_verifies() {
+        let src = scratch("eol-put-src");
+        fs::write(src.join("a.pel"), "x\r\ny\r\n").unwrap();
+        let store = Store::at(scratch("eol-put-store"));
+        let h = store.put(&src).unwrap();
+        let kept = fs::read(store.path_of(&h).unwrap().join("a.pel")).unwrap();
+        assert_eq!(kept, b"x\ny\n");
+        assert_eq!(store.verify(&h).unwrap(), Verdict::Ok);
     }
 
     #[test]
