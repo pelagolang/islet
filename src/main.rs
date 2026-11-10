@@ -1,6 +1,7 @@
 //! Islet, the package manager for Pelago. Stage 0: the store, the manifests, the lock and the resolver.
 
 mod blake3;
+mod install;
 mod lock;
 mod manifest;
 mod resolve;
@@ -25,6 +26,8 @@ usage:
   islet lock <dir> [--index <dir>] [--check]
                                    resolve a project or workspace and write its islet.lock
                                    (--check: fail if the lock on disk is not what resolving gives)
+  islet install <dir> [--index <dir>]
+                                   store and link every locked package under deps/, write deps/map.yaml
   islet tree <dir>                 print each member's dependencies from the islet.lock
 
 Packages come from the folder given by --index or ISLET_INDEX: <index>/<name>[/vN]/<version>/ holds one package.
@@ -192,6 +195,35 @@ fn run(args: &[String]) -> Result<(), String> {
                     lock.packages.len()
                 );
             }
+            Ok(())
+        }
+        ["install", dir, rest @ ..] => {
+            let mut index: Option<String> = std::env::var("ISLET_INDEX").ok();
+            let mut it = rest.iter();
+            while let Some(a) = it.next() {
+                match *a {
+                    "--index" => {
+                        index = Some(it.next().ok_or("--index needs a folder")?.to_string())
+                    }
+                    _ => return Err(USAGE.to_string()),
+                }
+            }
+            let file = Path::new(dir).join("islet.lock");
+            let shown = file.display().to_string();
+            let src = std::fs::read_to_string(&file)
+                .map_err(|e| format!("{shown}: {e}; run `islet lock {dir}` first"))?;
+            let l = lock::parse_lock(&shown, &src).map_err(|d| d.to_string())?;
+            let idx = resolve::DirIndex {
+                root: PathBuf::from(index.unwrap_or_default()),
+            };
+            let r = install::install(Path::new(dir), &l, &idx, &open(dir)?)?;
+            println!(
+                "installed {} packages ({} newly stored, {} linked) into {}",
+                l.packages.len(),
+                r.stored,
+                r.linked,
+                Path::new(dir).join("deps").display()
+            );
             Ok(())
         }
         ["tree", dir] => {
