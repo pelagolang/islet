@@ -1,6 +1,6 @@
 # The resolved map
 
-Status: proposal for the owner and the compiler thread. Nothing reads or writes it yet.
+Status: `islet install` writes it (this format). The compiler side (`package.rs` reading it) is not built yet; the open questions at the end stand on my recommendations until the owner says otherwise.
 
 Decision already taken (2026-11-10): `islet` writes a resolved map and `pelago build` reads it. The compiler never
 runs `islet` and never parses `islet.lock`. This page proposes what the map holds.

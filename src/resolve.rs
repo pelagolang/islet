@@ -295,9 +295,15 @@ pub struct DirIndex {
     pub root: PathBuf,
 }
 
+impl DirIndex {
+    pub fn dir_of(&self, key: &str, version: &Version) -> PathBuf {
+        self.root.join(key).join(version.to_string())
+    }
+}
+
 impl Index for DirIndex {
     fn entry(&self, key: &str, version: &Version) -> Result<Entry, String> {
-        let dir = self.root.join(key).join(version.to_string());
+        let dir = self.dir_of(key, version);
         if !dir.is_dir() {
             return Err(format!("not found in {}", self.root.display()));
         }
