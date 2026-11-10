@@ -8,6 +8,8 @@ repository = "https://github.com/pelagolang/islet"
 publish = false
 
 [dependencies]
+ed25519-dalek = "3.0.0"
+getrandom = "0.4.3"
 
 [profile.release]
 opt-level = 3

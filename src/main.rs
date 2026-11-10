@@ -3,9 +3,11 @@
 mod blake3;
 mod edit;
 mod install;
+mod keys;
 mod lock;
 mod manifest;
 mod resolve;
+mod sign;
 mod store;
 mod yaml;
 
@@ -30,11 +32,20 @@ usage:
   islet add <dir> <name>[/vN][@<version>] [--from-monorepo] [--index <dir>]
                                    add or change a dependency in <dir>/islet.yaml (the newest in --index when no version)
   islet remove <dir> <name>[/vN]   remove a dependency from <dir>/islet.yaml
+  islet key gen                    make a signing key (OS key store first, then a key file); prints its id
+  islet key list                   the keys on this machine
+  islet key show <id>              print a key's public half
+  islet sign <dir> --key <id> [--out <file>]
+                                   sign a package folder; kept in the store's sigs/ unless --out
+  islet verify <dir> [--sig <file>] [--signer <id>]
+                                   check the signatures for a package folder
   islet install <dir> [--index <dir>]
                                    store and link every locked package under deps/, write deps/map.yaml
   islet tree <dir>                 print each member's dependencies from the islet.lock
 
 Packages come from the folder given by --index or ISLET_INDEX: <index>/<name>[/vN]/<version>/ holds one package.
+
+ISLET_KEY_BACKEND=file keeps new private keys in a file instead of the system key store.
 
 The store is the folder named by ISLET_STORE if set; otherwise `.islet` at the drive root on Windows
 and `~/.islet` elsewhere.";
@@ -262,6 +273,115 @@ fn run(args: &[String]) -> Result<(), String> {
             println!("updated {shown}; run `islet lock {dir}` next");
             Ok(())
         }
+        ["key", "gen"] => {
+            let s = open(".")?;
+            let secret = sign::generate()?;
+            let prefer = match std::env::var("ISLET_KEY_BACKEND").as_deref() {
+                Ok("file") => keys::Prefer::File,
+                _ => keys::Prefer::Auto,
+            };
+            let (id, backend) = keys::store(s.root(), &secret, prefer)?;
+            println!("{id}\nprivate key kept in {}", backend.describe());
+            Ok(())
+        }
+        ["key", "list"] => {
+            for (id, _) in keys::list(open(".")?.root())? {
+                println!("{id}");
+            }
+            Ok(())
+        }
+        ["key", "show", id] => {
+            let found = keys::list(open(".")?.root())?
+                .into_iter()
+                .find(|(k, _)| k == id)
+                .ok_or_else(|| format!("no key {id} on this machine"))?;
+            println!("{}", sign::hex(&found.1));
+            Ok(())
+        }
+        ["sign", dir, rest @ ..] => {
+            let mut key: Option<&str> = None;
+            let mut out: Option<&str> = None;
+            let mut it = rest.iter();
+            while let Some(a) = it.next() {
+                match *a {
+                    "--key" => key = Some(it.next().ok_or("--key needs a key id")?),
+                    "--out" => out = Some(it.next().ok_or("--out needs a file")?),
+                    _ => return Err(USAGE.to_string()),
+                }
+            }
+            let key = key.ok_or("sign needs --key <id> (see `islet key list`)")?;
+            let (name, version) = package_of(Path::new(dir))?;
+            let tree = store::tree_hash(Path::new(dir)).map_err(|e| e.to_string())?;
+            let s = open(dir)?;
+            let secret = keys::load(s.root(), key)?;
+            let sig = sign::Sig::make(&secret, &name, &version, &tree)?;
+            let dest = match out {
+                Some(o) => PathBuf::from(o),
+                None => sigs_dir(&s, &tree).join(format!("{}.sig", sig.signer().replace(':', "-"))),
+            };
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("{}: {e}", parent.display()))?;
+            }
+            std::fs::write(&dest, sig.to_text()).map_err(|e| format!("{}: {e}", dest.display()))?;
+            println!(
+                "{} signed {name}@{version} (tree {tree})\nwrote {}",
+                sig.signer(),
+                dest.display()
+            );
+            Ok(())
+        }
+        ["verify", dir, rest @ ..] => {
+            let mut file: Option<&str> = None;
+            let mut signer: Option<&str> = None;
+            let mut it = rest.iter();
+            while let Some(a) = it.next() {
+                match *a {
+                    "--sig" => file = Some(it.next().ok_or("--sig needs a file")?),
+                    "--signer" => signer = Some(it.next().ok_or("--signer needs a key id")?),
+                    _ => return Err(USAGE.to_string()),
+                }
+            }
+            let (name, version) = package_of(Path::new(dir))?;
+            let tree = store::tree_hash(Path::new(dir)).map_err(|e| e.to_string())?;
+            let s = open(dir)?;
+            let files: Vec<PathBuf> = match file {
+                Some(f) => vec![PathBuf::from(f)],
+                None => match std::fs::read_dir(sigs_dir(&s, &tree)) {
+                    Ok(rd) => rd.filter_map(|e| e.ok()).map(|e| e.path()).collect(),
+                    Err(_) => Vec::new(),
+                },
+            };
+            let mut good: Vec<String> = Vec::new();
+            for f in &files {
+                let shown = f.display().to_string();
+                let src = std::fs::read_to_string(f).map_err(|e| format!("{shown}: {e}"))?;
+                let sig = sign::Sig::parse(&shown, &src).map_err(|d| d.to_string())?;
+                if sig.package != name || sig.version != version || sig.tree != tree {
+                    println!(
+                        "MISMATCH {shown}: it signs {}@{} (tree {}), not this folder",
+                        sig.package, sig.version, sig.tree
+                    );
+                    continue;
+                }
+                match sig.verify() {
+                    Ok(()) => {
+                        println!("ok {} signs {name}@{version}", sig.signer());
+                        good.push(sig.signer());
+                    }
+                    Err(e) => println!("BAD {shown}: {e}"),
+                }
+            }
+            match signer {
+                Some(want) if !good.iter().any(|g| g == want) => {
+                    Err(format!("no valid signature by {want}"))
+                }
+                None if good.is_empty() => Err(format!(
+                    "{name}@{version} (tree {tree}) has no valid signature"
+                )),
+                _ => Ok(()),
+            }
+        }
         ["install", dir, rest @ ..] => {
             let mut index: Option<String> = std::env::var("ISLET_INDEX").ok();
             let mut it = rest.iter();
@@ -396,6 +516,25 @@ fn load_workspace(dir: &Path) -> Result<(Vec<resolve::MemberSrc>, manifest::Mono
             dir.display()
         ))
     }
+}
+
+/// The package a folder holds: its key (`json`, or `json/v2` from major 2) and version, from its `islet.yaml`.
+fn package_of(dir: &Path) -> Result<(String, String), String> {
+    let file = dir.join("islet.yaml");
+    let shown = file.display().to_string();
+    let src = std::fs::read_to_string(&file).map_err(|e| format!("{shown}: {e}"))?;
+    let m = manifest::parse_manifest(&shown, &src).map_err(|d| d.to_string())?;
+    let v = &m.package.version;
+    let name = if v.major >= 2 {
+        format!("{}/v{}", m.package.name, v.major)
+    } else {
+        m.package.name.clone()
+    };
+    Ok((name, v.to_string()))
+}
+
+fn sigs_dir(store: &Store, tree: &str) -> PathBuf {
+    store.root().join("sigs").join(tree)
 }
 
 /// An edited `islet.yaml` must still be a good one, and its `from: monorepo` entries must still resolve.
