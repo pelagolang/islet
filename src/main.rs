@@ -1,6 +1,7 @@
 //! Islet, the package manager for Pelago. Stage 0: the store, the manifests, the lock and the resolver.
 
 mod blake3;
+mod edit;
 mod install;
 mod lock;
 mod manifest;
@@ -26,6 +27,9 @@ usage:
   islet lock <dir> [--index <dir>] [--check]
                                    resolve a project or workspace and write its islet.lock
                                    (--check: fail if the lock on disk is not what resolving gives)
+  islet add <dir> <name>[/vN][@<version>] [--from-monorepo] [--index <dir>]
+                                   add or change a dependency in <dir>/islet.yaml (the newest in --index when no version)
+  islet remove <dir> <name>[/vN]   remove a dependency from <dir>/islet.yaml
   islet install <dir> [--index <dir>]
                                    store and link every locked package under deps/, write deps/map.yaml
   islet tree <dir>                 print each member's dependencies from the islet.lock
@@ -197,6 +201,67 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             Ok(())
         }
+        ["add", dir, spec, rest @ ..] => {
+            let mut index: Option<String> = std::env::var("ISLET_INDEX").ok();
+            let mut shared = false;
+            let mut it = rest.iter();
+            while let Some(a) = it.next() {
+                match *a {
+                    "--from-monorepo" => shared = true,
+                    "--index" => {
+                        index = Some(it.next().ok_or("--index needs a folder")?.to_string())
+                    }
+                    _ => return Err(USAGE.to_string()),
+                }
+            }
+            let (key, ver) = match spec.split_once('@') {
+                Some((k, v)) => (k, Some(v)),
+                None => (*spec, None),
+            };
+            if !manifest::is_dep_key(key) {
+                return Err(format!(
+                    "`{key}` is not a dependency name (like `json` or `json/v2`)"
+                ));
+            }
+            let value = if shared {
+                if ver.is_some() {
+                    return Err(
+                        "--from-monorepo takes the version from monorepo.yaml; leave out @version"
+                            .into(),
+                    );
+                }
+                edit::Spec::FromMonorepo
+            } else {
+                let v = match ver {
+                    Some(v) => manifest::Version::parse(v)
+                        .ok_or_else(|| format!("`{v}` is not a version like 1.2.3"))?,
+                    None => {
+                        let root = index.ok_or("no version given and no --index to look in")?;
+                        resolve::newest(Path::new(&root), key)?
+                    }
+                };
+                resolve::check_major(key, &v)?;
+                edit::Spec::Version(v.to_string())
+            };
+            let file = Path::new(dir).join("islet.yaml");
+            let shown = file.display().to_string();
+            let src = std::fs::read_to_string(&file).map_err(|e| format!("{shown}: {e}"))?;
+            let out = edit::add_dep(&src, key, &value)?;
+            check_edited(&file, &out)?;
+            std::fs::write(&file, &out).map_err(|e| format!("{shown}: {e}"))?;
+            println!("updated {shown}; run `islet lock {dir}` next");
+            Ok(())
+        }
+        ["remove", dir, key] => {
+            let file = Path::new(dir).join("islet.yaml");
+            let shown = file.display().to_string();
+            let src = std::fs::read_to_string(&file).map_err(|e| format!("{shown}: {e}"))?;
+            let out = edit::remove_dep(&src, key)?;
+            check_edited(&file, &out)?;
+            std::fs::write(&file, &out).map_err(|e| format!("{shown}: {e}"))?;
+            println!("updated {shown}; run `islet lock {dir}` next");
+            Ok(())
+        }
         ["install", dir, rest @ ..] => {
             let mut index: Option<String> = std::env::var("ISLET_INDEX").ok();
             let mut it = rest.iter();
@@ -331,6 +396,25 @@ fn load_workspace(dir: &Path) -> Result<(Vec<resolve::MemberSrc>, manifest::Mono
             dir.display()
         ))
     }
+}
+
+/// An edited `islet.yaml` must still be a good one, and its `from: monorepo` entries must still resolve.
+fn check_edited(file: &Path, text: &str) -> Result<(), String> {
+    let shown = file.display().to_string();
+    let m = manifest::parse_manifest(&shown, text).map_err(|d| d.to_string())?;
+    if m.dependencies
+        .iter()
+        .any(|d| d.spec == manifest::DepSpec::FromMonorepo)
+    {
+        let root =
+            find_monorepo(file).ok_or("`from: monorepo` needs a monorepo.yaml above this file")?;
+        let rsrc =
+            std::fs::read_to_string(&root).map_err(|e| format!("{}: {e}", root.display()))?;
+        let r = manifest::parse_monorepo(&root.display().to_string(), &rsrc)
+            .map_err(|d| d.to_string())?;
+        manifest::resolve(&m, &r).map_err(|(_, msg)| format!("{shown}: {msg}"))?;
+    }
+    Ok(())
 }
 
 fn main() -> ExitCode {

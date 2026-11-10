@@ -342,6 +342,18 @@ impl Index for DirIndex {
     }
 }
 
+/// The highest version of `key` in the folder index.
+pub fn newest(root: &Path, key: &str) -> Result<Version, String> {
+    let dir = root.join(key);
+    let rd =
+        std::fs::read_dir(&dir).map_err(|_| format!("`{key}` is not in {}", root.display()))?;
+    rd.filter_map(|e| e.ok())
+        .filter_map(|e| Version::parse(&e.file_name().to_string_lossy()))
+        .filter(|v| check_major(key, v).is_ok())
+        .max()
+        .ok_or_else(|| format!("no version of `{key}` in {}", root.display()))
+}
+
 /// Expand the `members` globs of a workspace: a literal folder, or `dir/*` for every folder below `dir`
 /// that holds an `islet.yaml`. Sorted, without the excluded ones.
 pub fn member_paths(root_dir: &Path, root: &Monorepo) -> Result<Vec<String>, String> {
