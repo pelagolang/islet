@@ -199,6 +199,10 @@ impl Store {
         }
     }
 
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
     pub fn path_of(&self, hex: &str) -> Result<PathBuf> {
         check_hex(hex)?;
         Ok(self.root.join("store").join(hex))
