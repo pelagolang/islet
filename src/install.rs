@@ -84,8 +84,13 @@ pub fn map_text(lock: &Lock) -> String {
     out
 }
 
+/// Does `dest` lead to `target`? Compared after resolving, because a Windows junction reads back with a
+/// different spelling (`\\?\` prefix) than the path it was made from.
 fn is_link_to(dest: &Path, target: &Path) -> bool {
-    fs::read_link(dest).map(|t| t == target).unwrap_or(false)
+    fs::symlink_metadata(dest)
+        .map(|m| m.file_type().is_symlink() || fs::read_link(dest).is_ok())
+        .unwrap_or(false)
+        && fs::canonicalize(dest).map(|d| d == target).unwrap_or(false)
 }
 
 /// Put every locked package in the store, link it under `deps/`, and write the map.
