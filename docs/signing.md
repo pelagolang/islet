@@ -150,9 +150,11 @@ canonical bytes, named by hash). The commands:
   no redirects, 256 MiB cap), then checks every byte: the file list against the tree hash, each blob against its hash
   and length, and the result against the log. Fetched packages are cached in `<store>/registries/<origin>/pkg/`;
   `islet lock --registry` and `islet install --registry` use the cache.
+- Revocation (Dennis, 2026-11-11): the key holder or the operator may revoke. A holder's request carries their
+  own signature (`islet-revoke-v1`, public key and signature in the entry's `proof`), which the audit checks, so
+  an operator cannot forge one; an operator's revocation has proof `none`. Clients treat both the same.
 - **Not built:** a way to look up yanks
-  and revocations without reading every entry (needed once the log is large; the registry card's), who may ask for
-  a revocation (here the operator who holds the log key), and the per-shard heads (sharding is in the library,
+  and revocations without reading every entry (needed once the log is large; the registry card's), the per-shard heads (sharding is in the library,
   not used by the folder registry).
 
 ## 5. Stages

@@ -375,12 +375,32 @@ impl Registry {
         )
     }
 
-    /// Record that a key is compromised. (Who may ask for this is the real registry's business; here the
-    /// operator, who holds the log key, decides.)
-    pub fn revoke(&self, key_id: &str, log_secret: &[u8; 32]) -> Result<u64, String> {
+    /// Record that a key is compromised. Either the key holder asks (`holder` is their secret key, and the entry
+    /// carries their signature as proof, so the operator cannot forge it), or the operator revokes on their own
+    /// say (`holder` is None, proof `none`). Both end the same way for clients; the log shows which it was.
+    pub fn revoke(
+        &self,
+        key_id: &str,
+        holder: Option<&[u8; 32]>,
+        log_secret: &[u8; 32],
+    ) -> Result<u64, String> {
+        let proof = match holder {
+            None => "none".to_string(),
+            Some(secret) => {
+                let (public, sig) =
+                    sign::sign_bytes(secret, crate::tlog::revoke_statement(key_id).as_bytes());
+                if sign::key_id(&public) != key_id {
+                    return Err(format!("that secret key is not {key_id}"));
+                }
+                let mut both = public.to_vec();
+                both.extend_from_slice(&sig);
+                sign::hex(&both)
+            }
+        };
         self.append(
             &Entry::Revoke {
                 key: key_id.to_string(),
+                proof,
             },
             log_secret,
         )
@@ -677,7 +697,12 @@ impl Client {
                     signer,
                     ..
                 } => yanks.push((package, version, signer)),
-                Entry::Revoke { key } => {
+                Entry::Revoke { key, proof } => {
+                    if !crate::tlog::revoke_proof_ok(&key, &proof) {
+                        return Err(format!(
+                            "entry {i}: the revoke proof for {key} is not its signature"
+                        ));
+                    }
                     a.revoked.insert(key);
                 }
             }
@@ -1320,7 +1345,7 @@ mod tests {
         assert_eq!(head.head.size, 3);
         assert!(e.reg.pkg_root().join("json/1.5.0.tree").is_file());
         // A revoked key: refused for a new pin, warned about where it is pinned already.
-        e.reg.revoke(&id(&b), &e.log_secret).unwrap();
+        e.reg.revoke(&id(&b), None, &e.log_secret).unwrap();
         let head = c.check_head().unwrap();
         let audit = c.audit(&head).unwrap();
         let units = e.lock(&[("units", "0.2.4", Some(id(&b)))]);
@@ -1334,6 +1359,45 @@ mod tests {
                 .any(|n| n.contains("warning") && n.contains(&id(&b))),
             "{notes:?}"
         );
+    }
+
+    #[test]
+    fn a_key_holder_can_revoke_and_nobody_can_forge_that() {
+        let e = env("holder");
+        let (a, b) = (sign::generate().unwrap(), sign::generate().unwrap());
+        e.trust(&[], 0);
+        // Someone else's secret cannot revoke the key.
+        assert!(e
+            .reg
+            .revoke(&id(&a), Some(&b), &e.log_secret)
+            .unwrap_err()
+            .contains("not"));
+        e.reg.revoke(&id(&a), Some(&a), &e.log_secret).unwrap();
+        let c = e.client().unwrap();
+        let head = c.check_head().unwrap();
+        assert!(c.audit(&head).unwrap().revoked.contains(&id(&a)));
+        // A proof for another key, or a mangled one, is refused by the audit.
+        let wrong = {
+            let (public, sig) =
+                sign::sign_bytes(&b, crate::tlog::revoke_statement(&id(&b)).as_bytes());
+            let mut both = public.to_vec();
+            both.extend_from_slice(&sig);
+            sign::hex(&both)
+        };
+        assert!(!crate::tlog::revoke_proof_ok(&id(&a), &wrong));
+        assert!(!crate::tlog::revoke_proof_ok(&id(&a), &"0".repeat(192)));
+        assert!(crate::tlog::revoke_proof_ok(&id(&a), "none"));
+        e.reg
+            .append(
+                &Entry::Revoke {
+                    key: id(&a),
+                    proof: wrong,
+                },
+                &e.log_secret,
+            )
+            .unwrap();
+        let head = c.check_head().unwrap();
+        assert!(c.audit(&head).unwrap_err().contains("proof"));
     }
 
     #[test]

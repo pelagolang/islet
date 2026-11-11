@@ -545,8 +545,35 @@ pub enum Entry {
         tree: String,
         signer: String,
     },
-    /// The key is compromised: clients refuse to pin it and warn about it where it is pinned.
-    Revoke { key: String },
+    /// The key is compromised: clients refuse to pin it and warn about it where it is pinned. `proof` is the
+    /// key holder's own signature over `revoke_statement(key)` (128 hex digits), or `none` when the operator
+    /// revoked it on their own say.
+    Revoke { key: String, proof: String },
+}
+
+/// What a key holder signs to revoke their own key.
+pub fn revoke_statement(key: &str) -> String {
+    format!("islet-revoke-v1\nkey: {key}\n")
+}
+
+/// Does a revoke entry's proof hold? `none` is the operator's word and needs nothing; anything else must be
+/// the revoked key's own signature.
+pub fn revoke_proof_ok(key: &str, proof: &str) -> bool {
+    if proof == "none" {
+        return true;
+    }
+    let Some(sig) = crate::sign::unhex(proof) else {
+        return false;
+    };
+    // The key id is a hash of the public key, so the public key travels in the proof: 64 bytes of signature
+    // after 32 bytes of public key.
+    if sig.len() != 96 {
+        return false;
+    }
+    let public: [u8; 32] = sig[..32].try_into().unwrap();
+    let signature: [u8; 64] = sig[32..].try_into().unwrap();
+    crate::sign::key_id(&public) == key
+        && crate::sign::verify_bytes(&public, revoke_statement(key).as_bytes(), &signature)
 }
 
 fn tree_ok(t: &str) -> bool {
@@ -590,11 +617,18 @@ impl Entry {
                     "{ENTRY_DOMAIN}\nkind: {kind}\npackage: {package}\nversion: {version}\ntree: {tree}\nsigner: {signer}\n"
                 )
             }
-            Entry::Revoke { key } => {
+            Entry::Revoke { key, proof } => {
                 if !is_key_id(key) {
                     return Err("a key id is `key:` and 64 lowercase hex digits".into());
                 }
-                format!("{ENTRY_DOMAIN}\nkind: revoke\nkey: {key}\n")
+                let hexish = proof.len() == 192
+                    && proof
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+                if proof != "none" && !hexish {
+                    return Err("a revoke proof is `none` or 192 lowercase hex digits".into());
+                }
+                format!("{ENTRY_DOMAIN}\nkind: revoke\nkey: {key}\nproof: {proof}\n")
             }
         };
         Ok(text.into_bytes())
@@ -638,7 +672,10 @@ impl Entry {
                     }
                 }
             }
-            "revoke" => Entry::Revoke { key: field("key")? },
+            "revoke" => Entry::Revoke {
+                key: field("key")?,
+                proof: field("proof")?,
+            },
             other => return Err(format!("unknown entry kind `{other}`")),
         };
         if entry.to_bytes()? != bytes {
@@ -1298,7 +1335,10 @@ mod tests {
         };
         assert_eq!(Entry::parse(&y.to_bytes().unwrap()).unwrap(), y);
         assert_ne!(y.to_bytes().unwrap(), bytes);
-        let v = Entry::Revoke { key: k.clone() };
+        let v = Entry::Revoke {
+            key: k.clone(),
+            proof: "none".into(),
+        };
         assert_eq!(Entry::parse(&v.to_bytes().unwrap()).unwrap(), v);
         // Anything not canonical is refused: extra text, a missing newline, a reordered field, a bad field.
         let text = String::from_utf8(bytes).unwrap();
@@ -1313,7 +1353,8 @@ mod tests {
         .is_err());
         assert!(Entry::parse(&[0xff, 0xfe]).is_err());
         assert!(Entry::Revoke {
-            key: "key:zz".into()
+            key: "key:zz".into(),
+            proof: "none".into()
         }
         .to_bytes()
         .is_err());

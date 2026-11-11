@@ -53,7 +53,7 @@ usage:
                                    copy a package in, sign it, add a release entry to the log
   islet registry yank <dir> <name>[/vN]@<version> --key <id> --log-key <id>
                                    withdraw a release (a new log entry; nothing is deleted)
-  islet registry revoke <dir> <key id> --log-key <id>
+  islet registry revoke <dir> <key id> --log-key <id> [--key <id>]   (--key: the key holder's own request)
                                    record that a key is compromised
   islet registry cosign <dir> --key <id> --log-key <id>
                                    a witness checks the log has only grown, then cosigns the head
@@ -781,12 +781,25 @@ fn registry_command(sub: &str, location: &str, rest: &[&str]) -> Result<(), Stri
         }
         "revoke" => {
             let (id, rest) = rest.split_first().ok_or(USAGE)?;
-            let p = flag_pairs(rest, &["--log-key"])?;
+            let p = flag_pairs(rest, &["--log-key", "--key"])?;
             if !lock::is_key_id(id) {
                 return Err(format!("`{id}` is not a key id"));
             }
-            let i = registry::Registry::open(dir)?.revoke(id, &secret(one(&p, "--log-key")?)?)?;
-            println!("revoked {id} (entry {i})");
+            let holder = match p.iter().find(|(f, _)| *f == "--key") {
+                Some((_, v)) => Some(secret(v)?),
+                None => None,
+            };
+            let i = registry::Registry::open(dir)?.revoke(
+                id,
+                holder.as_ref(),
+                &secret(one(&p, "--log-key")?)?,
+            )?;
+            let by = if holder.is_some() {
+                "by its holder"
+            } else {
+                "by the operator"
+            };
+            println!("revoked {id} {by} (entry {i})");
             Ok(())
         }
         "cosign" => {
