@@ -9,8 +9,11 @@
 
 The package manager for [Pelago](https://github.com/pelagolang/pelago). The command is `islet`.
 
-Status: design stage. Nothing here installs packages yet. See [docs/design.md](docs/design.md) for what is decided
-and [docs/plan.md](docs/plan.md) for the milestones.
+Status: early, and usable from a folder. Built: the store, `islet.yaml` / `monorepo.yaml` / `islet.lock`, minimal version
+selection, `islet add`, `remove`, `lock`, `install` and `tree`, Ed25519 signing with signer pins, and a registry with a
+transparency log, served from a folder or over HTTP. Not built: a public registry, `islet update`, `islet regen` and
+`publish`/`audit`/`search`. See [docs/design.md](docs/design.md) for what is decided, [docs/signing.md](docs/signing.md)
+for signing and the registry, and [docs/plan.md](docs/plan.md) for the milestones.
 
 ## What it is
 
