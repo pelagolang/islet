@@ -6,6 +6,7 @@ mod install;
 mod keys;
 mod lock;
 mod manifest;
+mod registry;
 mod resolve;
 mod sign;
 mod store;
@@ -41,6 +42,22 @@ usage:
   islet rotate --cosign <file> --key <key id>
                                    add the new key's co-signature to a rotation file (a rotation without it is
                                    not followed)
+  islet lock <dir> --registry <dir>
+                                   as above, but the packages come from a registry folder and every one is
+                                   checked against its transparency log (see `islet registry`)
+  islet registry init <dir> --origin <name> --log-key <id>
+                                   make an empty registry folder whose log is signed by that key
+  islet registry publish <dir> <package-dir> --key <id> --log-key <id>
+                                   copy a package in, sign it, add a release entry to the log
+  islet registry yank <dir> <name>[/vN]@<version> --key <id> --log-key <id>
+                                   withdraw a release (a new log entry; nothing is deleted)
+  islet registry revoke <dir> <key id> --log-key <id>
+                                   record that a key is compromised
+  islet registry cosign <dir> --key <id> --log-key <id>
+                                   a witness checks the log has only grown, then cosigns the head
+  islet registry add <dir> --log-key <id> [--witness <id>]... [--need <n>]
+                                   trust this registry on this machine: its log key and witnesses
+  islet registry check <dir>       check the registry's head and log as a client would
   islet add <dir> <name>[/vN][@<version>] [--from-monorepo] [--index <dir>]
                                    add or change a dependency in <dir>/islet.yaml (the newest in --index when no version)
   islet remove <dir> <name>[/vN]   remove a dependency from <dir>/islet.yaml
@@ -185,11 +202,16 @@ fn run(args: &[String]) -> Result<(), String> {
             let mut index: Option<String> = std::env::var("ISLET_INDEX").ok();
             let mut check = false;
             let mut require_signed = false;
+            let mut registry_dir: Option<PathBuf> = None;
             let mut it = rest.iter();
             while let Some(a) = it.next() {
                 match *a {
                     "--check" => check = true,
                     "--require-signed" => require_signed = true,
+                    "--registry" => {
+                        registry_dir =
+                            Some(PathBuf::from(it.next().ok_or("--registry needs a folder")?))
+                    }
                     "--index" => {
                         index = Some(it.next().ok_or("--index needs a folder")?.to_string())
                     }
@@ -198,6 +220,22 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             let dir = Path::new(dir);
             let (members, root) = load_workspace(dir)?;
+            let store = open(&dir.display().to_string())?;
+            let client = match &registry_dir {
+                Some(r) => {
+                    let c = registry::Client::open(r, store.root())?;
+                    let head = c.check_head()?;
+                    let audit = c.audit(&head)?;
+                    index = Some(
+                        registry::Registry { dir: r.clone() }
+                            .pkg_root()
+                            .display()
+                            .to_string(),
+                    );
+                    Some((c, head, audit))
+                }
+                None => None,
+            };
             let idx = resolve::DirIndex {
                 root: PathBuf::from(index.unwrap_or_default()),
             };
@@ -213,10 +251,14 @@ fn run(args: &[String]) -> Result<(), String> {
             let notes = trust::apply(
                 &mut lock,
                 previous.as_ref(),
-                open(&dir.display().to_string())?.root(),
+                store.root(),
                 &idx,
                 require_signed,
             )?;
+            let mut notes = notes;
+            if let Some((c, head, audit)) = &client {
+                notes.extend(c.check_lock(head, audit, &lock, previous.as_ref())?);
+            }
             let text = lock.to_text();
             if check {
                 let on_disk = std::fs::read_to_string(&file)
@@ -250,6 +292,7 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             Ok(())
         }
+        ["registry", sub, dir, rest @ ..] => registry_command(sub, Path::new(dir), rest),
         ["trust", dir, key, signer] => {
             let file = Path::new(dir).join("islet.lock");
             let shown = file.display().to_string();
@@ -620,6 +663,151 @@ fn load_workspace(dir: &Path) -> Result<(Vec<resolve::MemberSrc>, manifest::Mono
             "{}: no monorepo.yaml or islet.yaml here",
             dir.display()
         ))
+    }
+}
+
+/// `--flag value` pairs, in order. A flag may repeat.
+fn flag_pairs<'a>(rest: &[&'a str], allowed: &[&str]) -> Result<Vec<(&'a str, &'a str)>, String> {
+    let mut out = Vec::new();
+    let mut it = rest.iter();
+    while let Some(f) = it.next() {
+        if !allowed.contains(f) {
+            return Err(USAGE.to_string());
+        }
+        let v = it.next().ok_or_else(|| format!("{f} needs a value"))?;
+        out.push((*f, *v));
+    }
+    Ok(out)
+}
+
+fn one<'a>(pairs: &[(&'a str, &'a str)], flag: &str) -> Result<&'a str, String> {
+    pairs
+        .iter()
+        .find(|(f, _)| *f == flag)
+        .map(|(_, v)| *v)
+        .ok_or_else(|| format!("this needs {flag} <value>"))
+}
+
+fn registry_command(sub: &str, dir: &Path, rest: &[&str]) -> Result<(), String> {
+    let store = Store::for_project(Path::new(".")).map_err(|e| e.to_string())?;
+    let sroot = store.root().to_path_buf();
+    let secret = |id: &str| registry::secret(&sroot, id);
+    match sub {
+        "init" => {
+            let p = flag_pairs(rest, &["--origin", "--log-key"])?;
+            let (origin, log) = (one(&p, "--origin")?, one(&p, "--log-key")?);
+            registry::Registry::init(dir, origin, &secret(log)?)?;
+            println!(
+                "made the registry `{origin}` in {}; its log is signed by {log}",
+                dir.display()
+            );
+            Ok(())
+        }
+        "publish" => {
+            let (pkg, rest) = rest.split_first().ok_or(USAGE)?;
+            let p = flag_pairs(rest, &["--key", "--log-key"])?;
+            let (key, version) = package_of(Path::new(pkg))?;
+            let r = registry::Registry::open(dir)?;
+            let i = r.publish(
+                Path::new(pkg),
+                &key,
+                &version,
+                &secret(one(&p, "--key")?)?,
+                &secret(one(&p, "--log-key")?)?,
+            )?;
+            println!("published {key}@{version} as entry {i} of the log");
+            Ok(())
+        }
+        "yank" => {
+            let (spec, rest) = rest.split_first().ok_or(USAGE)?;
+            let (key, version) = spec
+                .split_once('@')
+                .ok_or("name the release as <name>[/vN]@<version>")?;
+            let p = flag_pairs(rest, &["--key", "--log-key"])?;
+            let i = registry::Registry::open(dir)?.yank(
+                key,
+                version,
+                &secret(one(&p, "--key")?)?,
+                &secret(one(&p, "--log-key")?)?,
+            )?;
+            println!("yanked {key}@{version} (entry {i}; nothing was deleted)");
+            Ok(())
+        }
+        "revoke" => {
+            let (id, rest) = rest.split_first().ok_or(USAGE)?;
+            let p = flag_pairs(rest, &["--log-key"])?;
+            if !lock::is_key_id(id) {
+                return Err(format!("`{id}` is not a key id"));
+            }
+            let i = registry::Registry::open(dir)?.revoke(id, &secret(one(&p, "--log-key")?)?)?;
+            println!("revoked {id} (entry {i})");
+            Ok(())
+        }
+        "cosign" => {
+            let p = flag_pairs(rest, &["--key", "--log-key"])?;
+            let w = registry::Registry::open(dir)?.cosign(
+                &sroot,
+                &secret(one(&p, "--key")?)?,
+                one(&p, "--log-key")?,
+            )?;
+            println!("{w} cosigned the head");
+            Ok(())
+        }
+        "add" => {
+            let p = flag_pairs(rest, &["--log-key", "--witness", "--need"])?;
+            let log_key = one(&p, "--log-key")?;
+            let witnesses: Vec<String> = p
+                .iter()
+                .filter(|(f, _)| *f == "--witness")
+                .map(|(_, v)| v.to_string())
+                .collect();
+            let need = match p.iter().find(|(f, _)| *f == "--need") {
+                Some((_, n)) => n.parse::<usize>().map_err(|_| "--need is a whole number")?,
+                None => 0,
+            };
+            let t = registry::Trust {
+                origin: registry::Registry::open(dir)?.origin()?,
+                log_key: log_key.to_string(),
+                witnesses,
+                need,
+            };
+            // Parse our own text back, so what is stored is what will be read.
+            registry::Trust::parse("trust", &t.to_text()).map_err(|d| d.to_string())?;
+            let path = registry::Trust::path(&sroot, &t.origin);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("{}: {e}", parent.display()))?;
+            }
+            std::fs::write(&path, t.to_text()).map_err(|e| format!("{}: {e}", path.display()))?;
+            println!(
+                "trusting `{}`: log key {log_key}, {} of {} witnesses needed ({})",
+                t.origin,
+                t.need,
+                t.witnesses.len(),
+                path.display()
+            );
+            Ok(())
+        }
+        "check" => {
+            if !rest.is_empty() {
+                return Err(USAGE.to_string());
+            }
+            let c = registry::Client::open(dir, &sroot)?;
+            let head = c.check_head()?;
+            let a = c.audit(&head)?;
+            println!(
+                "ok `{}`: {} entries, root {}, {} witness cosignatures, {} releases, {} yanked, {} keys revoked",
+                head.head.origin,
+                head.head.size,
+                tlog::hex(&head.head.root),
+                head.witnesses.len(),
+                a.releases.len(),
+                a.yanked.len(),
+                a.revoked.len()
+            );
+            Ok(())
+        }
+        _ => Err(USAGE.to_string()),
     }
 }
 

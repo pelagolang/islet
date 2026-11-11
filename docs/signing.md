@@ -127,6 +127,28 @@ A library with no network in it. What is conventional and what is ours:
 - **Not yet:** nothing serves the tiles or fetches them over a network (S-4), and the log's own key and the witness
   list are not configured anywhere yet.
 
+### 4b. How S-4 is built (`src/registry.rs`)
+
+A registry is a folder of the static files a CDN would serve: `registry.yaml`, `head.yaml`, `tile/...`, `lookup/<key>/<version>`
+and `pkg/<key>/<version>/` with `pkg/<key>/<version>.sigs/`. The commands:
+
+- Operator: `islet registry init | publish | yank | revoke`, each signed with a key from the key store; a witness runs
+  `islet registry cosign`, which refuses a head whose log signature is bad or that does not extend the last head it
+  cosigned.
+- Client: `islet registry add <dir> --log-key <id> [--witness <id>]... [--need n]` writes the trust anchor into the
+  store (`<store>/registries/<origin>.yaml`). Nothing the registry says about its own key is believed. Then
+  `islet lock <dir> --registry <reg>` checks the head (log key, N-of-M witnesses, consistency with the last head this
+  machine saw, which it remembers), reads the whole log to compare it with the head's root, and for every locked
+  package finds its release entry through `lookup/`, proves it in the log with an inclusion proof built from tiles,
+  and compares tree hash and signer. It refuses yanked releases, revoked keys, two releases of one version, a pin
+  that disagrees with the log, and warns about a revoked key that is still pinned. `islet install --index <reg>/pkg`
+  needs no proofs: the lock already holds the checked hashes and signers.
+- Equivalent of a transparency log's monitor: `islet registry check <dir>` does the head and log checks alone.
+- **Not built:** an HTTP transport (the client reads a folder; the layout is the one to serve), a way to look up yanks
+  and revocations without reading every entry (needed once the log is large; the registry card's), who may ask for
+  a revocation (here the operator who holds the log key), and the per-shard heads (sharding is in the library,
+  not used by the folder registry).
+
 ## 5. Stages
 
 | Card | What | Done when |
@@ -134,7 +156,7 @@ A library with no network in it. What is conventional and what is ours:
 | S-1 | `islet key gen`, `islet sign <dir>`, `islet verify <dir>`; the statement format; `.sig` in the store | A tree is signed, verified, and a changed file or a changed version makes verification fail. **Built** (signatures live in `<store>/sigs/<tree hash>/<signer>.sig`, outside the tree, since a signature inside it would change its hash). |
 | S-2 | The signer pin in `islet.lock` (with schema and example), `islet trust`, rotation statements | A lock records the signer; a different signer is refused; rotation by the old key is accepted. **Built** (see section 3a). |
 | S-3 | Log formats: tiles, signed tree heads, inclusion and consistency proofs, witness cosignatures, as a library with test vectors | Proofs verify against a log built in the tests, and tampering with any tile or head is caught. **Built** (section 4a). |
-| S-4 | A local test registry that serves tiles, and `islet` fetching with proof checks (this is card I-5) | A package is published, fetched, verified and rejected when tampered with. |
+| S-4 | A local test registry that serves tiles, and `islet` fetching with proof checks (this is card I-5) | A package is published, fetched, verified and rejected when tampered with. **Built** for a folder registry (section 4b); HTTP and a scalable yank/revoke lookup are not. |
 
 S-1 and S-2 do not need a network or a registry, so they come first and are useful on their own (a monorepo can sign
 internal packages today).

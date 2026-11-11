@@ -390,6 +390,21 @@ impl HashSource for TileHashes<'_> {
     }
 }
 
+/// The `width` hashes in the bytes of a tile file.
+pub fn parse_tile(data: &[u8], width: u64) -> Result<Vec<Hash>, String> {
+    if data.len() as u64 != width * 32 {
+        return Err(format!(
+            "a tile of {width} hashes is {} bytes, not {}",
+            width * 32,
+            data.len()
+        ));
+    }
+    Ok(data
+        .chunks(32)
+        .map(|c| <[u8; 32]>::try_from(c).expect("chunks of 32"))
+        .collect())
+}
+
 /// Tiles as files in a map (the tests and the local registry use this; a CDN client would fetch the same paths).
 pub struct TileFiles(pub BTreeMap<String, Vec<u8>>);
 
@@ -400,13 +415,7 @@ impl TileSource for TileFiles {
             .0
             .get(&path)
             .ok_or_else(|| format!("{path}: not found"))?;
-        if data.len() as u64 != width * 32 {
-            return Err(format!("{path}: wrong length"));
-        }
-        Ok(data
-            .chunks(32)
-            .map(|c| <[u8; 32]>::try_from(c).expect("chunks of 32"))
-            .collect())
+        parse_tile(data, width).map_err(|e| format!("{path}: {e}"))
     }
 }
 
@@ -422,6 +431,12 @@ pub struct Log {
 impl Log {
     pub fn new() -> Log {
         Log::default()
+    }
+
+    /// A log with these entries, in order.
+    pub fn from_entries(entries: Vec<Vec<u8>>) -> Log {
+        let leaves = entries.iter().map(|e| leaf_hash(e)).collect();
+        Log { entries, leaves }
     }
 
     pub fn append(&mut self, entry: &[u8]) -> u64 {
