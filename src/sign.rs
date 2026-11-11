@@ -198,6 +198,10 @@ pub struct Rotation {
     /// The old key's public half, so the file can be checked alone.
     pub public: [u8; 32],
     pub signature: [u8; 64],
+    /// The new key's co-signature of the same statement: proof that whoever rotates to a key holds it, so a typo
+    /// or a stranger's key cannot be pinned by accident. A rotation without it is not followed.
+    pub new_public: Option<[u8; 32]>,
+    pub new_signature: Option<[u8; 64]>,
 }
 
 fn is_key_id(s: &str) -> bool {
@@ -230,9 +234,29 @@ impl Rotation {
             new: new.into(),
             public,
             signature: key.sign(msg.as_bytes()).to_bytes(),
+            new_public: None,
+            new_signature: None,
         })
     }
 
+    /// Add the new key's co-signature. The secret must belong to the key named in `new`.
+    pub fn cosign(&mut self, new_secret: &[u8; 32]) -> Result<(), String> {
+        let key = SigningKey::from_bytes(new_secret);
+        let public = key.verifying_key().to_bytes();
+        if key_id(&public) != self.new {
+            return Err(format!(
+                "that key is {}, not the new key {}",
+                key_id(&public),
+                self.new
+            ));
+        }
+        let msg = rotation_statement(&self.package, &self.old, &self.new)?;
+        self.new_public = Some(public);
+        self.new_signature = Some(key.sign(msg.as_bytes()).to_bytes());
+        Ok(())
+    }
+
+    /// Is the old key's signature good, and the new key's too if it is there?
     pub fn verify(&self) -> Result<(), String> {
         if self.old != key_id(&self.public) {
             return Err("`old` is not the hash of `public`".into());
@@ -241,18 +265,44 @@ impl Rotation {
         let key =
             VerifyingKey::from_bytes(&self.public).map_err(|_| "the public key is not valid")?;
         key.verify_strict(msg.as_bytes(), &Signature::from_bytes(&self.signature))
-            .map_err(|_| "the signature does not match".to_string())
+            .map_err(|_| "the signature does not match".to_string())?;
+        if let (Some(public), Some(signature)) = (&self.new_public, &self.new_signature) {
+            if self.new != key_id(public) {
+                return Err("`new` is not the hash of `new_public`".into());
+            }
+            let nk =
+                VerifyingKey::from_bytes(public).map_err(|_| "the new public key is not valid")?;
+            nk.verify_strict(msg.as_bytes(), &Signature::from_bytes(signature))
+                .map_err(|_| "the new key's signature does not match".to_string())?;
+        }
+        Ok(())
+    }
+
+    /// Both keys have signed. Only a complete rotation is followed.
+    pub fn verify_complete(&self) -> Result<(), String> {
+        if self.new_public.is_none() || self.new_signature.is_none() {
+            return Err("the new key has not co-signed (`islet rotate --cosign`)".into());
+        }
+        self.verify()
     }
 
     pub fn to_text(&self) -> String {
-        format!(
+        let mut out = format!(
             "# islet key rotation: written by islet, do not edit.\nformat: 1\npackage: {}\nold: {}\nnew: {}\npublic: {}\nsignature: {}\n",
             yaml::string(&self.package),
             yaml::quoted(&self.old),
             yaml::quoted(&self.new),
             yaml::quoted(&hex(&self.public)),
             yaml::quoted(&hex(&self.signature)),
-        )
+        );
+        if let (Some(p), Some(s)) = (&self.new_public, &self.new_signature) {
+            out.push_str(&format!(
+                "new_public: {}\nnew_signature: {}\n",
+                yaml::quoted(&hex(p)),
+                yaml::quoted(&hex(s))
+            ));
+        }
+        out
     }
 
     pub fn parse(file: &str, src: &str) -> Result<Rotation, Diag> {
@@ -261,7 +311,16 @@ impl Rotation {
 
     fn read(src: &str) -> Result<Rotation, PErr> {
         let root = yaml::parse(src)?;
-        const KEYS: [&str; 6] = ["format", "package", "old", "new", "public", "signature"];
+        const KEYS: [&str; 8] = [
+            "format",
+            "package",
+            "old",
+            "new",
+            "public",
+            "signature",
+            "new_public",
+            "new_signature",
+        ];
         for e in &root.entries {
             if !KEYS.contains(&e.key.as_str()) {
                 return Err(PErr::new(e.key_at, format!("unknown key `{}`", e.key)));
@@ -303,12 +362,33 @@ impl Rotation {
         let signature: [u8; 64] = unhex(&signature)
             .and_then(|v| v.try_into().ok())
             .ok_or_else(|| PErr::new(sig_at, "`signature` must be 128 lowercase hex digits"))?;
+        let optional = |k: &str, n: usize| -> Result<Option<Vec<u8>>, PErr> {
+            match root.get(k) {
+                None => Ok(None),
+                Some(node) => match &node.v {
+                    Val::Str(s) => unhex(s).filter(|v| v.len() == n).map(Some).ok_or_else(|| {
+                        PErr::new(
+                            node.at,
+                            format!("`{k}` must be {} lowercase hex digits", 2 * n),
+                        )
+                    }),
+                    _ => Err(PErr::new(node.at, format!("`{k}` must be text"))),
+                },
+            }
+        };
+        let new_public = optional("new_public", 32)?;
+        let new_signature = optional("new_signature", 64)?;
+        if new_public.is_some() != new_signature.is_some() {
+            return Err(PErr::new(0, "`new_public` and `new_signature` go together"));
+        }
         Ok(Rotation {
             package,
             old,
             new,
             public,
             signature,
+            new_public: new_public.map(|v| v.try_into().unwrap()),
+            new_signature: new_signature.map(|v| v.try_into().unwrap()),
         })
     }
 }
@@ -433,5 +513,28 @@ mod tests {
         forged.signature = sig.signature;
         assert!(forged.verify().is_err());
         assert!(Rotation::make(&old, "json", "key:zz").is_err());
+    }
+
+    #[test]
+    fn the_new_key_cosigns_and_a_forged_cosignature_fails() {
+        let (old, new) = (generate().unwrap(), generate().unwrap());
+        let new_id = key_id(&public_of(&new));
+        let mut r = Rotation::make(&old, "json", &new_id).unwrap();
+        assert!(r.verify_complete().is_err());
+        r.cosign(&new).unwrap();
+        assert_eq!(r.verify_complete(), Ok(()));
+        let back = Rotation::parse("r", &r.to_text()).unwrap();
+        assert_eq!(back, r);
+        assert_eq!(back.verify_complete(), Ok(()));
+        // A co-signature by some other key, or over some other package, does not hold.
+        let mut bad = r.clone();
+        bad.new_signature = Some(Rotation::make(&old, "json", &new_id).unwrap().signature);
+        assert!(bad.verify().is_err());
+        let mut other_pkg = r.clone();
+        other_pkg.package = "yaml".into();
+        assert!(other_pkg.verify().is_err());
+        // One half of the pair is a file error.
+        let text = r.to_text().replace("new_public:", "x_public:");
+        assert!(Rotation::parse("r", &text).is_err());
     }
 }

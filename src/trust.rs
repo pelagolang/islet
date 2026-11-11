@@ -83,7 +83,7 @@ pub fn valid_sigs(dirs: &[PathBuf], key: &str, version: &Version, tree: &str) ->
     out
 }
 
-/// Every valid rotation for this package from the given folders.
+/// Every complete rotation (both keys signed) for this package from the given folders.
 pub fn valid_rotations(dirs: &[PathBuf], key: &str) -> Vec<Rotation> {
     let mut out: Vec<Rotation> = Vec::new();
     for d in dirs {
@@ -94,7 +94,7 @@ pub fn valid_rotations(dirs: &[PathBuf], key: &str) -> Vec<Rotation> {
             let Ok(r) = Rotation::parse(&f.display().to_string(), &src) else {
                 continue;
             };
-            if r.package == key && r.verify().is_ok() && !out.contains(&r) {
+            if r.package == key && r.verify_complete().is_ok() && !out.contains(&r) {
                 out.push(r);
             }
         }
@@ -118,10 +118,26 @@ pub enum Decision {
 /// with a valid signature on this version, `rots` the valid rotations.
 pub fn decide(
     key: &str,
+    declared: Option<&str>,
     pinned: Option<&str>,
     signers: &BTreeSet<String>,
     rots: &[Rotation],
 ) -> Result<Decision, String> {
+    // The release names its publisher in its own `islet.yaml`; then only that key's signature counts, and the
+    // rest of the rule (first use, pin, rotation) applies to that key alone.
+    let only_declared: BTreeSet<String>;
+    let signers = match declared {
+        Some(d) if signers.contains(d) => {
+            only_declared = BTreeSet::from([d.to_string()]);
+            &only_declared
+        }
+        Some(d) => {
+            return Err(format!(
+            "{key}: its islet.yaml names the publisher {d}, but no valid signature by it was found"
+        ))
+        }
+        None => signers,
+    };
     match pinned {
         None => match signers.len() {
             0 => Ok(Decision::Unsigned),
@@ -201,7 +217,14 @@ pub fn apply(
             ],
             &p.name,
         );
-        match decide(&p.name, pinned.as_deref(), &signers, &rots) {
+        let declared = idx.publisher(&p.name, &p.version);
+        match decide(
+            &p.name,
+            declared.as_deref(),
+            pinned.as_deref(),
+            &signers,
+            &rots,
+        ) {
             Ok(Decision::Unsigned) => {
                 if require_signed {
                     errors.push(format!("{id}: is not signed (--require-signed)"));
@@ -276,6 +299,13 @@ mod tests {
         sign::key_id(&sign::public_of(secret))
     }
 
+    /// A rotation signed by both keys.
+    fn full(old: &[u8; 32], new: &[u8; 32], package: &str) -> Rotation {
+        let mut r = Rotation::make(old, package, &kid(new)).unwrap();
+        r.cosign(new).unwrap();
+        r
+    }
+
     fn set(ids: &[&str]) -> BTreeSet<String> {
         ids.iter().map(|s| s.to_string()).collect()
     }
@@ -284,12 +314,15 @@ mod tests {
     fn first_use_pins_one_signer_and_asks_when_there_are_two() {
         let a = kid(&sign::generate().unwrap());
         let b = kid(&sign::generate().unwrap());
-        assert_eq!(decide("json", None, &set(&[]), &[]), Ok(Decision::Unsigned));
         assert_eq!(
-            decide("json", None, &set(&[&a]), &[]),
+            decide("json", None, None, &set(&[]), &[]),
+            Ok(Decision::Unsigned)
+        );
+        assert_eq!(
+            decide("json", None, None, &set(&[&a]), &[]),
             Ok(Decision::FirstUse(a.clone()))
         );
-        let e = decide("json", None, &set(&[&a, &b]), &[]).unwrap_err();
+        let e = decide("json", None, None, &set(&[&a, &b]), &[]).unwrap_err();
         assert!(e.contains("none is pinned yet"), "{e}");
     }
 
@@ -298,17 +331,17 @@ mod tests {
         let a = kid(&sign::generate().unwrap());
         let b = kid(&sign::generate().unwrap());
         assert_eq!(
-            decide("json", Some(&a), &set(&[&a]), &[]),
+            decide("json", None, Some(&a), &set(&[&a]), &[]),
             Ok(Decision::Pinned(a.clone()))
         );
         // Both keys sign: the pinned one still wins.
         assert_eq!(
-            decide("json", Some(&a), &set(&[&a, &b]), &[]),
+            decide("json", None, Some(&a), &set(&[&a, &b]), &[]),
             Ok(Decision::Pinned(a.clone()))
         );
-        let e = decide("json", Some(&a), &set(&[&b]), &[]).unwrap_err();
+        let e = decide("json", None, Some(&a), &set(&[&b]), &[]).unwrap_err();
         assert!(e.contains("islet trust"), "{e}");
-        let e = decide("json", Some(&a), &set(&[]), &[]).unwrap_err();
+        let e = decide("json", None, Some(&a), &set(&[]), &[]).unwrap_err();
         assert!(e.contains("unsigned release"), "{e}");
     }
 
@@ -320,25 +353,31 @@ mod tests {
             sign::generate().unwrap(),
         );
         let (a, b, c) = (kid(&sa), kid(&sb), kid(&sc));
-        let ab = Rotation::make(&sa, "json", &b).unwrap();
-        let bc = Rotation::make(&sb, "json", &c).unwrap();
+        let ab = full(&sa, &sb, "json");
+        let bc = full(&sb, &sc, "json");
         assert_eq!(
-            decide("json", Some(&a), &set(&[&b]), std::slice::from_ref(&ab)),
+            decide(
+                "json",
+                None,
+                Some(&a),
+                &set(&[&b]),
+                std::slice::from_ref(&ab)
+            ),
             Ok(Decision::Rotated {
                 from: a.clone(),
                 to: b.clone()
             })
         );
         assert_eq!(
-            decide("json", Some(&a), &set(&[&c]), &[ab.clone(), bc]),
+            decide("json", None, Some(&a), &set(&[&c]), &[ab.clone(), bc]),
             Ok(Decision::Rotated {
                 from: a.clone(),
                 to: c.clone()
             })
         );
         // A rotation the new key made for itself (wrong direction) does not help, and neither does a gap.
-        let ba = Rotation::make(&sb, "json", &a).unwrap();
-        assert!(decide("json", Some(&a), &set(&[&c]), &[ab, ba]).is_err());
+        let ba = full(&sb, &sa, "json");
+        assert!(decide("json", None, Some(&a), &set(&[&c]), &[ab, ba]).is_err());
     }
 
     #[test]
@@ -427,7 +466,7 @@ mod tests {
         assert_eq!(stray.packages[0].signer, None);
 
         // ...and a rotation signed by A lets B through without a prompt.
-        let rot = Rotation::make(&sa, "json", &b).unwrap();
+        let rot = full(&sa, &sb, "json");
         let rdir = store_rotations(&store, "json");
         std::fs::create_dir_all(&rdir).unwrap();
         std::fs::write(rdir.join(rotation_file_name(&rot)), rot.to_text()).unwrap();
@@ -435,5 +474,47 @@ mod tests {
         assert_eq!(next.packages[0].signer.as_deref(), Some(b.as_str()));
         assert!(notes[0].contains("rotation"), "{notes:?}");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_declared_publisher_is_the_only_signer_that_counts() {
+        let (sa, sb) = (sign::generate().unwrap(), sign::generate().unwrap());
+        let (a, b) = (kid(&sa), kid(&sb));
+        // Declared and signed: first use pins the declared key even though another key signed too.
+        assert_eq!(
+            decide("json", Some(&a), None, &set(&[&a, &b]), &[]),
+            Ok(Decision::FirstUse(a.clone()))
+        );
+        // Declared but not signed by it: refused, whoever else signed.
+        let e = decide("json", Some(&a), None, &set(&[&b]), &[]).unwrap_err();
+        assert!(e.contains("names the publisher"), "{e}");
+        // A later release declares another key: refused without a rotation, followed with a complete one.
+        assert!(decide("json", Some(&b), Some(&a), &set(&[&b]), &[]).is_err());
+        let rot = full(&sa, &sb, "json");
+        assert_eq!(
+            decide("json", Some(&b), Some(&a), &set(&[&b]), &[rot]),
+            Ok(Decision::Rotated {
+                from: a.clone(),
+                to: b.clone()
+            })
+        );
+    }
+
+    #[test]
+    fn a_rotation_the_new_key_has_not_cosigned_is_not_followed() {
+        let dir = std::env::temp_dir().join(format!("islet-rot-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (sa, sb) = (sign::generate().unwrap(), sign::generate().unwrap());
+        let mut r = Rotation::make(&sa, "json", &kid(&sb)).unwrap();
+        std::fs::write(dir.join("half.rot"), r.to_text()).unwrap();
+        assert!(valid_rotations(std::slice::from_ref(&dir), "json").is_empty());
+        r.cosign(&sb).unwrap();
+        std::fs::write(dir.join("half.rot"), r.to_text()).unwrap();
+        assert_eq!(valid_rotations(std::slice::from_ref(&dir), "json").len(), 1);
+        // The wrong key cannot co-sign.
+        let mut other = Rotation::make(&sa, "json", &kid(&sb)).unwrap();
+        assert!(other.cosign(&sign::generate().unwrap()).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

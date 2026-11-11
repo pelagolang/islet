@@ -34,7 +34,11 @@ usage:
   islet trust <dir> <name>[/vN] <key id>
                                    pin a package to another signer by hand (run `islet lock` after)
   islet rotate <name>[/vN] --old <key id> --new <key id> [--out <file>]
-                                   sign, with the old key, that the package is now published by the new key
+                                   the old key signs that the package is now published by the new key; the new
+                                   key co-signs at once when it is on this machine
+  islet rotate --cosign <file> --key <key id>
+                                   add the new key's co-signature to a rotation file (a rotation without it is
+                                   not followed)
   islet add <dir> <name>[/vN][@<version>] [--from-monorepo] [--index <dir>]
                                    add or change a dependency in <dir>/islet.yaml (the newest in --index when no version)
   islet remove <dir> <name>[/vN]   remove a dependency from <dir>/islet.yaml
@@ -258,6 +262,20 @@ fn run(args: &[String]) -> Result<(), String> {
             );
             Ok(())
         }
+        ["rotate", "--cosign", file, "--key", id] => {
+            let shown = file.to_string();
+            let src = std::fs::read_to_string(file).map_err(|e| format!("{shown}: {e}"))?;
+            let mut r = sign::Rotation::parse(&shown, &src).map_err(|d| d.to_string())?;
+            r.verify()?;
+            let secret = keys::load(open(".")?.root(), id)?;
+            r.cosign(&secret)?;
+            std::fs::write(file, r.to_text()).map_err(|e| format!("{shown}: {e}"))?;
+            println!(
+                "{id} co-signed the rotation of {} from {}",
+                r.package, r.old
+            );
+            Ok(())
+        }
         ["rotate", key, rest @ ..] => {
             let (mut old, mut new, mut out): (Option<&str>, Option<&str>, Option<&str>) =
                 (None, None, None);
@@ -274,7 +292,11 @@ fn run(args: &[String]) -> Result<(), String> {
             let new = new.ok_or("rotate needs --new <key id>")?;
             let s = open(".")?;
             let secret = keys::load(s.root(), old)?;
-            let r = sign::Rotation::make(&secret, key, new)?;
+            let mut r = sign::Rotation::make(&secret, key, new)?;
+            let cosigned = match keys::load(s.root(), new) {
+                Ok(new_secret) => r.cosign(&new_secret).is_ok(),
+                Err(_) => false,
+            };
             let dest = match out {
                 Some(o) => PathBuf::from(o),
                 None => trust::store_rotations(s.root(), key).join(trust::rotation_file_name(&r)),
@@ -285,6 +307,12 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             std::fs::write(&dest, r.to_text()).map_err(|e| format!("{}: {e}", dest.display()))?;
             println!("{old} hands {key} to {new}\nwrote {}", dest.display());
+            if !cosigned {
+                println!(
+                    "the new key is not on this machine, so the rotation is not complete yet; on the machine that has it run\n  islet rotate --cosign {} --key {new}",
+                    dest.display()
+                );
+            }
             Ok(())
         }
         ["add", dir, spec, rest @ ..] => {

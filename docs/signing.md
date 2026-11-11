@@ -50,8 +50,8 @@ beside the tree in the store, and published next to the package.
 2. **A different signer is an error.** A new release signed by another key is refused until `islet trust <package>
    <key id>` is run, and the lock diff shows it in review. This catches a hijacked account (the attacker does not
    hold the old key) the way a changed SSH host key does.
-3. **Rotation is signed by the old key.** A rotation statement (`islet-rotate-v1`, old id, new id) signed with the
-   old key is accepted without a prompt. Loss of the old key means a manual `islet trust`.
+3. **Rotation is signed by both keys.** A rotation statement (`islet-rotate-v1`, package, old id, new id) signed with
+   the old key and co-signed by the new one is accepted without a prompt. Loss of the old key means a manual `islet trust`.
 4. **Offline is the normal case.** Verification needs only the public key and the signature. `install` re-verifies
    from the store and needs no network.
 
@@ -74,8 +74,13 @@ A signature alone does not show that everyone sees the same package list; that i
   rotations are also read from `<index>/<key>/rotations/`. `lock` follows a chain of them from the pin.
 - `islet install` requires a valid signature by the pinned signer, copies the index's signatures into the store, and
   from then on checks the store alone, so it works offline.
-- Not built: the `publisher` field of `islet.yaml` (the first release fixing the key) and the new key co-signing a
-  rotation.
+- `publisher: key:<hex>` in the `package` table of `islet.yaml` names the key that signs the release. When it is
+  there, only that key's signature counts: it must have signed this release, it is what first use pins, and a later
+  release that names another key is refused unless a rotation from the pinned key reaches it.
+- A rotation needs both keys. `islet rotate` has the old key sign and, when the new key is on the same machine, the
+  new key co-sign. Otherwise it says so, and `islet rotate --cosign <file> --key <new key id>` finishes it where the
+  new key lives. `islet lock` follows only complete rotations, so a typo or a stranger's key cannot be pinned by a
+  rotation. (A key lost entirely still means a manual `islet trust`.)
 
 ## 4. The transparency log
 
