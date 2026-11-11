@@ -42,6 +42,7 @@ packages:
     hash: "5e4a6d5e3475d57be438a0ed1c2f81e1e2fd52c82d2edf6b974ddc6666cdd8a6"
   json@1.5.0:
     hash: "2708a2eef28076c39dd92a656d62e0259a7011ad7d7e4e6dcddff60474e936aa"
+    signer: "key:5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"
   json/v2@2.0.1:
     hash: "22bafcfdd8884e484a5ae2dd1258634b318f989fadd84f1a423aec9219f0be60"
     needs:

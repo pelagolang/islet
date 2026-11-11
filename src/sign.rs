@@ -185,6 +185,134 @@ impl Sig {
     }
 }
 
+const ROTATE_DOMAIN: &str = "islet-rotate-v1";
+
+/// A key rotation: the old key says "from now on this package is published by the new key". Signed by the old
+/// key only, so a client that pinned the old key follows it without a prompt; losing the old key means a manual
+/// `islet trust`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rotation {
+    pub package: String,
+    pub old: String,
+    pub new: String,
+    /// The old key's public half, so the file can be checked alone.
+    pub public: [u8; 32],
+    pub signature: [u8; 64],
+}
+
+fn is_key_id(s: &str) -> bool {
+    s.strip_prefix("key:").is_some_and(|h| {
+        blake3::from_hex(h).is_some() && !h.bytes().any(|b| b.is_ascii_uppercase())
+    })
+}
+
+pub fn rotation_statement(package: &str, old: &str, new: &str) -> Result<String, String> {
+    if !is_dep_key(package) {
+        return Err(format!("`{package}` is not a package name"));
+    }
+    if !is_key_id(old) || !is_key_id(new) {
+        return Err("a key id is `key:` and 64 lowercase hex digits".into());
+    }
+    Ok(format!(
+        "{ROTATE_DOMAIN}\npackage: {package}\nold: {old}\nnew: {new}\n"
+    ))
+}
+
+impl Rotation {
+    pub fn make(secret: &[u8; 32], package: &str, new: &str) -> Result<Rotation, String> {
+        let key = SigningKey::from_bytes(secret);
+        let public = key.verifying_key().to_bytes();
+        let old = key_id(&public);
+        let msg = rotation_statement(package, &old, new)?;
+        Ok(Rotation {
+            package: package.into(),
+            old,
+            new: new.into(),
+            public,
+            signature: key.sign(msg.as_bytes()).to_bytes(),
+        })
+    }
+
+    pub fn verify(&self) -> Result<(), String> {
+        if self.old != key_id(&self.public) {
+            return Err("`old` is not the hash of `public`".into());
+        }
+        let msg = rotation_statement(&self.package, &self.old, &self.new)?;
+        let key =
+            VerifyingKey::from_bytes(&self.public).map_err(|_| "the public key is not valid")?;
+        key.verify_strict(msg.as_bytes(), &Signature::from_bytes(&self.signature))
+            .map_err(|_| "the signature does not match".to_string())
+    }
+
+    pub fn to_text(&self) -> String {
+        format!(
+            "# islet key rotation: written by islet, do not edit.\nformat: 1\npackage: {}\nold: {}\nnew: {}\npublic: {}\nsignature: {}\n",
+            yaml::string(&self.package),
+            yaml::quoted(&self.old),
+            yaml::quoted(&self.new),
+            yaml::quoted(&hex(&self.public)),
+            yaml::quoted(&hex(&self.signature)),
+        )
+    }
+
+    pub fn parse(file: &str, src: &str) -> Result<Rotation, Diag> {
+        Rotation::read(src).map_err(|e| Diag::new(file, src, e))
+    }
+
+    fn read(src: &str) -> Result<Rotation, PErr> {
+        let root = yaml::parse(src)?;
+        const KEYS: [&str; 6] = ["format", "package", "old", "new", "public", "signature"];
+        for e in &root.entries {
+            if !KEYS.contains(&e.key.as_str()) {
+                return Err(PErr::new(e.key_at, format!("unknown key `{}`", e.key)));
+            }
+        }
+        match root.get("format") {
+            Some(n) if n.v == Val::Int(1) => {}
+            Some(n) => {
+                return Err(PErr::new(
+                    n.at,
+                    "unsupported `format` (this islet reads `format: 1`)",
+                ))
+            }
+            None => return Err(PErr::new(0, "a rotation needs `format: 1`")),
+        }
+        let text = |k: &str| -> Result<(String, usize), PErr> {
+            match root.get(k) {
+                Some(n) => match &n.v {
+                    Val::Str(s) => Ok((s.clone(), n.at)),
+                    _ => Err(PErr::new(n.at, format!("`{k}` must be text"))),
+                },
+                None => Err(PErr::new(0, format!("`{k}` is missing"))),
+            }
+        };
+        let (package, _) = text("package")?;
+        let (old, old_at) = text("old")?;
+        let (new, new_at) = text("new")?;
+        let (public, public_at) = text("public")?;
+        let (signature, sig_at) = text("signature")?;
+        if !is_key_id(&old) {
+            return Err(PErr::new(old_at, "`old` must be a key id"));
+        }
+        if !is_key_id(&new) {
+            return Err(PErr::new(new_at, "`new` must be a key id"));
+        }
+        let public: [u8; 32] = unhex(&public)
+            .and_then(|v| v.try_into().ok())
+            .ok_or_else(|| PErr::new(public_at, "`public` must be 64 lowercase hex digits"))?;
+        let signature: [u8; 64] = unhex(&signature)
+            .and_then(|v| v.try_into().ok())
+            .ok_or_else(|| PErr::new(sig_at, "`signature` must be 128 lowercase hex digits"))?;
+        Ok(Rotation {
+            package,
+            old,
+            new,
+            public,
+            signature,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -283,5 +411,27 @@ mod tests {
         // The signature still holds for the old tree and says nothing about the new one.
         assert_eq!(sig.verify(), Ok(()));
         assert_ne!(sig.tree, after);
+    }
+
+    #[test]
+    fn a_rotation_is_signed_by_the_old_key_and_holds_only_for_its_statement() {
+        let old = generate().unwrap();
+        let new_id = key_id(&public_of(&generate().unwrap()));
+        let r = Rotation::make(&old, "json", &new_id).unwrap();
+        assert_eq!(r.old, key_id(&public_of(&old)));
+        assert_eq!(r.verify(), Ok(()));
+        assert_eq!(Rotation::parse("r", &r.to_text()).unwrap(), r);
+        let mut other_new = r.clone();
+        other_new.new = key_id(&public_of(&generate().unwrap()));
+        assert!(other_new.verify().is_err());
+        let mut other_pkg = r.clone();
+        other_pkg.package = "yaml".into();
+        assert!(other_pkg.verify().is_err());
+        // A package signature never passes as a rotation: the domain lines differ.
+        let sig = Sig::make(&old, "json", "1.0.0", TREE).unwrap();
+        let mut forged = r.clone();
+        forged.signature = sig.signature;
+        assert!(forged.verify().is_err());
+        assert!(Rotation::make(&old, "json", "key:zz").is_err());
     }
 }

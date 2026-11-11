@@ -5,6 +5,7 @@ the same thing to other YAML tools."""
 import json
 import pathlib
 import sys
+import re
 import yaml
 
 from jsonschema import Draft202012Validator
@@ -53,6 +54,11 @@ def check_lock(path):
     for key, pkg in doc.get("packages", {}).items():
         if not (isinstance(pkg["hash"], str) and len(pkg["hash"]) == 64):
             problems.append(f"{key} hash is not 64 characters of text")
+        signer = pkg.get("signer")
+        if signer is not None and not (
+            isinstance(signer, str) and re.fullmatch(r"key:[0-9a-f]{64}", signer)
+        ):
+            problems.append(f"{key} signer is not a key id")
         for need in pkg.get("needs", []):
             if need not in doc["packages"]:
                 problems.append(f"{key} needs {need}, which is not a package")

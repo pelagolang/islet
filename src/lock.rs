@@ -20,6 +20,7 @@
 //! packages:                     # every package in the closure
 //!   json@1.5.0:
 //!     hash: "<64 hex digits: the store address of the package's source>"
+//!     signer: "key:<64 hex digits>"   # optional: the pinned publisher (docs/signing.md)
 //!   json/v2@2.0.1:
 //!     hash: "<64 hex digits>"
 //!     needs:
@@ -66,6 +67,8 @@ pub struct Locked {
     pub version: Version,
     /// Store address (64 lowercase hex digits).
     pub hash: String,
+    /// The pinned publisher, `key:<64 hex>`; `None` for a package that is not signed.
+    pub signer: Option<String>,
     /// `name@version` of other packages in the lock.
     pub dependencies: Vec<String>,
 }
@@ -160,6 +163,9 @@ impl Lock {
                     yaml::string(&p.key()),
                     yaml::quoted(&p.hash)
                 ));
+                if let Some(signer) = &p.signer {
+                    out.push_str(&format!("    signer: {}\n", yaml::quoted(signer)));
+                }
                 if !p.dependencies.is_empty() {
                     let mut d = p.dependencies.clone();
                     d.sort();
@@ -350,7 +356,7 @@ pub fn parse_lock(file: &str, src: &str) -> Result<Lock, Diag> {
                 }
                 let ver = Version::parse(vs).ok_or_else(bad_key)?;
                 let t = mapping(&e.node, &format!("`{}`", e.key))?;
-                only(t, &["hash", "needs"], "a package")?;
+                only(t, &["hash", "signer", "needs"], "a package")?;
                 let hn = t
                     .get("hash")
                     .ok_or_else(|| PErr::new(e.node.at, format!("`{}` needs `hash`", e.key)))?;
@@ -362,6 +368,19 @@ pub fn parse_lock(file: &str, src: &str) -> Result<Lock, Diag> {
                 {
                     return Err(PErr::new(hn.at, "`hash` must be 64 lowercase hex digits"));
                 }
+                let signer = match t.get("signer") {
+                    None => None,
+                    Some(n) => {
+                        let s = string(n, "`signer`")?;
+                        if !is_key_id(&s) {
+                            return Err(PErr::new(
+                                n.at,
+                                "`signer` must be `key:` and 64 lowercase hex digits",
+                            ));
+                        }
+                        Some(s)
+                    }
+                };
                 let mut dependencies = Vec::new();
                 if let Some(dn) = t.get("needs") {
                     match &dn.v {
@@ -379,6 +398,7 @@ pub fn parse_lock(file: &str, src: &str) -> Result<Lock, Diag> {
                     name: name.to_string(),
                     version: ver,
                     hash,
+                    signer,
                     dependencies,
                 });
             }
@@ -398,6 +418,15 @@ pub fn parse_lock(file: &str, src: &str) -> Result<Lock, Diag> {
         Ok(lock)
     };
     inner().map_err(|e| Diag::new(file, src, e))
+}
+
+/// `key:` and 64 lowercase hex digits: the shape of a key id.
+pub fn is_key_id(s: &str) -> bool {
+    s.strip_prefix("key:").is_some_and(|h| {
+        h.len() == 64
+            && h.bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    })
 }
 
 /// A workspace member's own name, as written under `members`: any non-empty text without spaces. Entries under
@@ -473,6 +502,7 @@ mod tests {
             name: name.into(),
             version: v(ver),
             hash: h.to_string().repeat(64),
+            signer: None,
             dependencies: deps.iter().map(|s| s.to_string()).collect(),
         }
     }
@@ -731,5 +761,38 @@ packages:
             .msg
             .contains("only format 1"));
         assert!(e("packages: []\n").msg.contains("must be a mapping"));
+    }
+
+    #[test]
+    fn a_signer_round_trips_in_the_canonical_place() {
+        let key = format!("key:{}", "ab".repeat(32));
+        let mut l = Lock {
+            packages: vec![pkg("json", "1.5.0", 'a', &[])],
+            ..Lock::default()
+        };
+        l.packages[0].signer = Some(key.clone());
+        let text = l.to_text();
+        assert!(
+            text.contains(&format!(
+                "hash: \"{}\"\n    signer: \"{key}\"\n",
+                "a".repeat(64)
+            )),
+            "{text}"
+        );
+        let back = parse_lock("islet.lock", &text).unwrap();
+        assert_eq!(back, l);
+        assert!(is_canonical(&back, &text));
+    }
+
+    #[test]
+    fn a_bad_signer_says_where() {
+        let h = "a".repeat(64);
+        for bad in ["abc", "key:abc", &format!("key:{}", "AB".repeat(32))] {
+            let src = format!(
+                "format: 1\npackages:\n  json@1.5.0:\n    hash: \"{h}\"\n    signer: \"{bad}\"\n"
+            );
+            let e = parse_lock("islet.lock", &src).unwrap_err();
+            assert!(e.msg.contains("`signer` must be"), "{e}");
+        }
     }
 }

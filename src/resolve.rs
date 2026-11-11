@@ -127,6 +127,7 @@ fn locked_from(sel: &Selection, into: &mut BTreeMap<String, Locked>) -> Result<(
             name: k.clone(),
             version: v.clone(),
             hash: e.hash.clone(),
+            signer: None,
             dependencies: needs,
         };
         match into.get(&name) {
@@ -298,6 +299,16 @@ pub struct DirIndex {
 impl DirIndex {
     pub fn dir_of(&self, key: &str, version: &Version) -> PathBuf {
         self.root.join(key).join(version.to_string())
+    }
+
+    /// Signatures for one release sit beside it, never inside it (they would change its hash).
+    pub fn sigs_dir(&self, key: &str, version: &Version) -> PathBuf {
+        self.root.join(key).join(format!("{version}.sigs"))
+    }
+
+    /// Key rotations for a package.
+    pub fn rotations_dir(&self, key: &str) -> PathBuf {
+        self.root.join(key).join("rotations")
     }
 }
 

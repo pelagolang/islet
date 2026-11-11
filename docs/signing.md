@@ -57,6 +57,26 @@ beside the tree in the store, and published next to the package.
 
 A signature alone does not show that everyone sees the same package list; that is the log's job.
 
+### 3a. How S-2 works on disk
+
+- `islet lock` reads the existing `islet.lock` as the previous pins, then for each package looks for valid
+  signatures in `<store>/sigs/<tree hash>/` and in the folder index next to the release
+  (`<index>/<key>/<version>.sigs/`). A file that does not parse, names another package, version or tree, or does not
+  verify is ignored.
+- One valid signer and no pin: pinned, and the key id is printed. Pinned and the pin signed it: kept. Pinned and only
+  another key signed it, or nobody did: an error naming both keys. Two valid signers and no pin: an error asking for
+  `islet trust`. `--require-signed` makes an unsigned package an error too. Unsigned packages are allowed by default
+  until a registry exists to enforce it.
+- `islet trust <dir> <package> <key id>` rewrites the pin for every locked version of the package; the next
+  `islet lock` checks that the key really signs them.
+- `islet rotate <package> --old <id> --new <id>` signs the statement
+  `islet-rotate-v1 / package / old / new` with the old key and stores it in `<store>/rotations/<key>/` (or `--out`);
+  rotations are also read from `<index>/<key>/rotations/`. `lock` follows a chain of them from the pin.
+- `islet install` requires a valid signature by the pinned signer, copies the index's signatures into the store, and
+  from then on checks the store alone, so it works offline.
+- Not built: the `publisher` field of `islet.yaml` (the first release fixing the key) and the new key co-signing a
+  rotation.
+
 ## 4. The transparency log
 
 The registry publishes an append-only Merkle log of every `(package, version, tree hash, signer)` entry. The design
@@ -82,7 +102,7 @@ log everyone sees, and that the log only ever grew.
 | Card | What | Done when |
 |---|---|---|
 | S-1 | `islet key gen`, `islet sign <dir>`, `islet verify <dir>`; the statement format; `.sig` in the store | A tree is signed, verified, and a changed file or a changed version makes verification fail. **Built** (signatures live in `<store>/sigs/<tree hash>/<signer>.sig`, outside the tree, since a signature inside it would change its hash). |
-| S-2 | The signer pin in `islet.lock` (with schema and example), `islet trust`, rotation statements | A lock records the signer; a different signer is refused; rotation by the old key is accepted. |
+| S-2 | The signer pin in `islet.lock` (with schema and example), `islet trust`, rotation statements | A lock records the signer; a different signer is refused; rotation by the old key is accepted. **Built** (see section 3a). |
 | S-3 | Log formats: tiles, signed tree heads, inclusion and consistency proofs, witness cosignatures, as a library with test vectors | Proofs verify against a log built in the tests, and tampering with any tile or head is caught. |
 | S-4 | A local test registry that serves tiles, and `islet` fetching with proof checks (this is card I-5) | A package is published, fetched, verified and rejected when tampered with. |
 
