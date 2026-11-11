@@ -102,13 +102,38 @@ log everyone sees, and that the log only ever grew.
 - **Yanks and revocation.** A yank is a new log entry, never a deletion. A compromised key is revoked by an entry
   naming the key id; clients refuse to pin a revoked key and warn on one already pinned.
 
+### 4a. How S-3 is built (`src/tlog.rs`)
+
+A library with no network in it. What is conventional and what is ours:
+
+- **Conventional:** the Merkle tree and its inclusion and consistency proofs are RFC 6962 / RFC 9162 (leaf prefix 0,
+  node prefix 1, split at the largest power of two); the tile layout is C2SP `tlog-tiles` (`tile/<level>/<n>`,
+  `x001/x234/067` path groups, partial tiles `.p/<width>`, 256 hashes of 32 bytes per tile, entry tiles with
+  two-byte length prefixes); signed heads and witness cosignatures are the checkpoint and witness idea.
+- **Ours:** the hash is BLAKE3 (so a log is not byte-compatible with Go's SHA-256 ones); an entry is a canonical text
+  `islet-log-entry-v1` with `kind: release | yank | revoke` and exactly one spelling; a signed head is strict YAML
+  carrying the public keys; the log signs `islet-log-head-v1` and a witness signs the same head under
+  `islet-witness-v1`, so neither signature can pass for the other.
+- **Client rules:** a head is accepted when the origin and the log key match and at least N distinct keys out of the
+  M configured witnesses cosigned it. A newer head is accepted only with a consistency proof from the old one
+  (`check_update`); an entry is in the log when its inclusion proof leads to the head's root. A witness
+  (`witness_cosign`) checks the log's signature and the consistency proof before it signs.
+- **Sharding:** `shard_of(package key, bits)` is the first bits of `BLAKE3(key)`; each shard is its own log with the
+  origin `<origin>/shard-<hex>`.
+- **Evidence:** every proof is generated for every size up to 40 and checked against an independent construction;
+  each flipped bit, dropped or extra hash, wrong index, forked history and tampered or missing tile is refused. A
+  66000-entry log is served from tiles: a proof needs a handful of tiles. The pinned root in `a_pinned_root` is a
+  regression vector produced by this code, since no published vectors exist for BLAKE3 logs.
+- **Not yet:** nothing serves the tiles or fetches them over a network (S-4), and the log's own key and the witness
+  list are not configured anywhere yet.
+
 ## 5. Stages
 
 | Card | What | Done when |
 |---|---|---|
 | S-1 | `islet key gen`, `islet sign <dir>`, `islet verify <dir>`; the statement format; `.sig` in the store | A tree is signed, verified, and a changed file or a changed version makes verification fail. **Built** (signatures live in `<store>/sigs/<tree hash>/<signer>.sig`, outside the tree, since a signature inside it would change its hash). |
 | S-2 | The signer pin in `islet.lock` (with schema and example), `islet trust`, rotation statements | A lock records the signer; a different signer is refused; rotation by the old key is accepted. **Built** (see section 3a). |
-| S-3 | Log formats: tiles, signed tree heads, inclusion and consistency proofs, witness cosignatures, as a library with test vectors | Proofs verify against a log built in the tests, and tampering with any tile or head is caught. |
+| S-3 | Log formats: tiles, signed tree heads, inclusion and consistency proofs, witness cosignatures, as a library with test vectors | Proofs verify against a log built in the tests, and tampering with any tile or head is caught. **Built** (section 4a). |
 | S-4 | A local test registry that serves tiles, and `islet` fetching with proof checks (this is card I-5) | A package is published, fetched, verified and rejected when tampered with. |
 
 S-1 and S-2 do not need a network or a registry, so they come first and are useful on their own (a monorepo can sign

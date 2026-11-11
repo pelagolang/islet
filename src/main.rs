@@ -9,6 +9,8 @@ mod manifest;
 mod resolve;
 mod sign;
 mod store;
+#[allow(dead_code)] // a library until the local registry (S-4) uses it
+mod tlog;
 mod trust;
 mod yaml;
 
