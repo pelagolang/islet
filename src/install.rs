@@ -8,6 +8,7 @@
 use crate::lock::{Lock, Locked, Source};
 use crate::resolve::DirIndex;
 use crate::store::Store;
+use crate::trust;
 use crate::yaml;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -93,6 +94,38 @@ fn is_link_to(dest: &Path, target: &Path) -> bool {
         && fs::canonicalize(dest).map(|d| d == target).unwrap_or(false)
 }
 
+/// A pinned package needs a valid signature by its signer: bring the index's signatures into the store, then
+/// require one. After this the store alone proves it, so a later `install` works offline.
+fn check_signer(p: &Locked, id: &str, idx: &DirIndex, store: &Store) -> Result<(), String> {
+    let Some(signer) = &p.signer else {
+        return Ok(());
+    };
+    let own = trust::store_sigs(store.root(), &p.hash);
+    for s in trust::valid_sigs(
+        &[idx.sigs_dir(&p.name, &p.version)],
+        &p.name,
+        &p.version,
+        &p.hash,
+    ) {
+        let f = own.join(trust::sig_file_name(&s.signer()));
+        if !f.exists() {
+            fs::create_dir_all(&own).map_err(|e| format!("{}: {e}", own.display()))?;
+            fs::write(&f, s.to_text()).map_err(|e| format!("{}: {e}", f.display()))?;
+        }
+    }
+    if trust::valid_sigs(&[own], &p.name, &p.version, &p.hash)
+        .iter()
+        .any(|s| &s.signer() == signer)
+    {
+        Ok(())
+    } else {
+        Err(format!(
+            "{id}: the lock pins {signer}, but no valid signature by it was found (in the store or in {})",
+            idx.root.display()
+        ))
+    }
+}
+
 /// Put every locked package in the store, link it under `deps/`, and write the map.
 pub fn install(
     project: &Path,
@@ -123,6 +156,7 @@ pub fn install(
         if !had {
             report.stored += 1;
         }
+        check_signer(p, &id, idx, store)?;
         let dest: PathBuf = deps.join(&id);
         let target = fs::canonicalize(store.path_of(&p.hash).map_err(|e| e.to_string())?)
             .map_err(|e| format!("{id}: {e}"))?;
@@ -235,5 +269,60 @@ mod tests {
         fs::write(base.join("idx/units/0.2.4/a.pel"), "changed").unwrap();
         let e = install(&proj, &lock, &idx, &store).unwrap_err();
         assert!(e.contains("islet.lock says"), "{e}");
+    }
+
+    /// A pinned package installs only when a valid signature by its signer can be found; the index's signature
+    /// is copied into the store, so the next install needs nothing from the index.
+    #[test]
+    fn a_pinned_signer_must_have_signed() {
+        use crate::sign;
+        let base =
+            std::env::temp_dir().join(format!("islet-install-signed-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let dir = base.join("idx/units/0.2.4");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("islet.yaml"),
+            "format: 1\npackage:\n  name: units\n  version: 0.2.4\n",
+        )
+        .unwrap();
+        let tree = crate::store::tree_hash(&dir).unwrap();
+        let idx = DirIndex {
+            root: base.join("idx"),
+        };
+        let secret = sign::generate().unwrap();
+        let signer = sign::key_id(&sign::public_of(&secret));
+        let lock = Lock {
+            packages: vec![Locked {
+                name: "units".into(),
+                version: crate::manifest::Version::parse("0.2.4").unwrap(),
+                hash: tree.clone(),
+                signer: Some(signer.clone()),
+                dependencies: vec![],
+            }],
+            ..Lock::default()
+        };
+        let store = Store::at(base.join("store"));
+        let proj = base.join("proj");
+        fs::create_dir_all(&proj).unwrap();
+        let e = install(&proj, &lock, &idx, &store).unwrap_err();
+        assert!(e.contains("no valid signature"), "{e}");
+        // A signature by some other key does not satisfy the pin.
+        let other = sign::Sig::make(&sign::generate().unwrap(), "units", "0.2.4", &tree).unwrap();
+        let sigs = idx.sigs_dir("units", &crate::manifest::Version::parse("0.2.4").unwrap());
+        fs::create_dir_all(&sigs).unwrap();
+        fs::write(
+            sigs.join(trust::sig_file_name(&other.signer())),
+            other.to_text(),
+        )
+        .unwrap();
+        assert!(install(&proj, &lock, &idx, &store).is_err());
+        // The pinned key's does.
+        let good = sign::Sig::make(&secret, "units", "0.2.4", &tree).unwrap();
+        fs::write(sigs.join(trust::sig_file_name(&signer)), good.to_text()).unwrap();
+        install(&proj, &lock, &idx, &store).unwrap();
+        // Now the store alone proves it: the index's signatures can go.
+        fs::remove_dir_all(&sigs).unwrap();
+        install(&proj, &lock, &idx, &store).unwrap();
     }
 }

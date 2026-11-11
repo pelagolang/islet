@@ -9,6 +9,7 @@ mod manifest;
 mod resolve;
 mod sign;
 mod store;
+mod trust;
 mod yaml;
 
 use std::path::{Path, PathBuf};
@@ -26,9 +27,14 @@ usage:
   islet hash <dir>                 print a folder's hash without storing it
   islet check <file-or-dir>        check islet.yaml, monorepo.yaml and islet.lock, with line numbers
   islet lock fmt <file>            rewrite an islet.lock in its canonical form
-  islet lock <dir> [--index <dir>] [--check]
-                                   resolve a project or workspace and write its islet.lock
-                                   (--check: fail if the lock on disk is not what resolving gives)
+  islet lock <dir> [--index <dir>] [--check] [--require-signed]
+                                   resolve a project or workspace and write its islet.lock, pinning each
+                                   package's signer (--check: fail if the lock on disk is not what resolving
+                                   gives; --require-signed: fail on a package nobody signed)
+  islet trust <dir> <name>[/vN] <key id>
+                                   pin a package to another signer by hand (run `islet lock` after)
+  islet rotate <name>[/vN] --old <key id> --new <key id> [--out <file>]
+                                   sign, with the old key, that the package is now published by the new key
   islet add <dir> <name>[/vN][@<version>] [--from-monorepo] [--index <dir>]
                                    add or change a dependency in <dir>/islet.yaml (the newest in --index when no version)
   islet remove <dir> <name>[/vN]   remove a dependency from <dir>/islet.yaml
@@ -172,10 +178,12 @@ fn run(args: &[String]) -> Result<(), String> {
         ["lock", dir, rest @ ..] => {
             let mut index: Option<String> = std::env::var("ISLET_INDEX").ok();
             let mut check = false;
+            let mut require_signed = false;
             let mut it = rest.iter();
             while let Some(a) = it.next() {
                 match *a {
                     "--check" => check = true,
+                    "--require-signed" => require_signed = true,
                     "--index" => {
                         index = Some(it.next().ok_or("--index needs a folder")?.to_string())
                     }
@@ -187,9 +195,23 @@ fn run(args: &[String]) -> Result<(), String> {
             let idx = resolve::DirIndex {
                 root: PathBuf::from(index.unwrap_or_default()),
             };
-            let lock = resolve::resolve_workspace(&members, &root, &idx)?;
-            let text = lock.to_text();
+            let mut lock = resolve::resolve_workspace(&members, &root, &idx)?;
             let file = dir.join("islet.lock");
+            let previous = match std::fs::read_to_string(&file) {
+                Ok(src) => Some(
+                    lock::parse_lock(&file.display().to_string(), &src)
+                        .map_err(|d| d.to_string())?,
+                ),
+                Err(_) => None,
+            };
+            let notes = trust::apply(
+                &mut lock,
+                previous.as_ref(),
+                open(&dir.display().to_string())?.root(),
+                &idx,
+                require_signed,
+            )?;
+            let text = lock.to_text();
             if check {
                 let on_disk = std::fs::read_to_string(&file)
                     .map_err(|e| format!("{}: {e}", file.display()))?;
@@ -203,6 +225,16 @@ fn run(args: &[String]) -> Result<(), String> {
                 println!("ok {}", file.display());
             } else {
                 std::fs::write(&file, &text).map_err(|e| format!("{}: {e}", file.display()))?;
+                for n in &notes {
+                    println!("{n}");
+                }
+                let unsigned = lock.packages.iter().filter(|p| p.signer.is_none()).count();
+                if unsigned > 0 {
+                    println!(
+                        "note: {unsigned} of {} packages are not signed",
+                        lock.packages.len()
+                    );
+                }
                 println!(
                     "wrote {} ({} members, {} packages)",
                     file.display(),
@@ -210,6 +242,49 @@ fn run(args: &[String]) -> Result<(), String> {
                     lock.packages.len()
                 );
             }
+            Ok(())
+        }
+        ["trust", dir, key, signer] => {
+            let file = Path::new(dir).join("islet.lock");
+            let shown = file.display().to_string();
+            let src = std::fs::read_to_string(&file)
+                .map_err(|e| format!("{shown}: {e}; run `islet lock {dir}` first"))?;
+            let mut l = lock::parse_lock(&shown, &src).map_err(|d| d.to_string())?;
+            let n = trust::trust(&mut l, key, signer)?;
+            std::fs::write(&file, l.to_text()).map_err(|e| format!("{shown}: {e}"))?;
+            println!(
+                "{key} ({n} locked version{}) now pinned to {signer}; run `islet lock {dir}` to check that it signs them",
+                if n == 1 { "" } else { "s" }
+            );
+            Ok(())
+        }
+        ["rotate", key, rest @ ..] => {
+            let (mut old, mut new, mut out): (Option<&str>, Option<&str>, Option<&str>) =
+                (None, None, None);
+            let mut it = rest.iter();
+            while let Some(a) = it.next() {
+                match *a {
+                    "--old" => old = Some(it.next().ok_or("--old needs a key id")?),
+                    "--new" => new = Some(it.next().ok_or("--new needs a key id")?),
+                    "--out" => out = Some(it.next().ok_or("--out needs a file")?),
+                    _ => return Err(USAGE.to_string()),
+                }
+            }
+            let old = old.ok_or("rotate needs --old <key id>")?;
+            let new = new.ok_or("rotate needs --new <key id>")?;
+            let s = open(".")?;
+            let secret = keys::load(s.root(), old)?;
+            let r = sign::Rotation::make(&secret, key, new)?;
+            let dest = match out {
+                Some(o) => PathBuf::from(o),
+                None => trust::store_rotations(s.root(), key).join(trust::rotation_file_name(&r)),
+            };
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("{}: {e}", parent.display()))?;
+            }
+            std::fs::write(&dest, r.to_text()).map_err(|e| format!("{}: {e}", dest.display()))?;
+            println!("{old} hands {key} to {new}\nwrote {}", dest.display());
             Ok(())
         }
         ["add", dir, spec, rest @ ..] => {
