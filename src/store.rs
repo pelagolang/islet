@@ -136,14 +136,31 @@ fn list_files(dir: &Path) -> Result<Vec<(String, PathBuf)>> {
     Ok(out)
 }
 
-/// The address of the tree rooted at `dir`.
-pub fn tree_hash(dir: &Path) -> Result<String> {
+/// The manifest of the tree rooted at `dir`: one `<file hash> <length> <path>` line per file, sorted by path. The
+/// address of the tree is the BLAKE3 hash of exactly this text.
+pub fn tree_manifest(dir: &Path) -> Result<String> {
     let mut manifest = String::new();
     for (rel, abs) in list_files(dir)? {
         let (h, len) = hash_file(&abs)?;
         manifest.push_str(&format!("{} {} {}\n", blake3::to_hex(&h), len, rel));
     }
-    Ok(blake3::to_hex(&blake3::hash(manifest.as_bytes())))
+    Ok(manifest)
+}
+
+/// The address of the tree rooted at `dir`.
+pub fn tree_hash(dir: &Path) -> Result<String> {
+    Ok(blake3::to_hex(&blake3::hash(
+        tree_manifest(dir)?.as_bytes(),
+    )))
+}
+
+/// Every file of the tree as `(path, bytes as the store keeps them)`, sorted by path. These bytes (line endings
+/// normalised) are what a file's hash in the manifest is the hash of.
+pub fn tree_files(dir: &Path) -> Result<Vec<(String, Vec<u8>)>> {
+    list_files(dir)?
+        .into_iter()
+        .map(|(rel, abs)| Ok((rel, read_canonical(&abs)?)))
+        .collect()
 }
 
 fn set_readonly(path: &Path, ro: bool) -> Result<()> {

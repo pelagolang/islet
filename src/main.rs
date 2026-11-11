@@ -42,16 +42,18 @@ usage:
   islet rotate --cosign <file> --key <key id>
                                    add the new key's co-signature to a rotation file (a rotation without it is
                                    not followed)
-  islet lock <dir> --registry <dir>
+  islet lock <dir> --registry <dir-or-address>
                                    as above, but the packages come from a registry folder and every one is
                                    checked against its transparency log (see `islet registry`)
+  islet registry serve <dir> [--port <n>]
+                                   serve a registry folder over http://127.0.0.1 (static files, GET only)
   islet registry init <dir> --origin <name> --log-key <id>
                                    make an empty registry folder whose log is signed by that key
   islet registry publish <dir> <package-dir> --key <id> --log-key <id>
                                    copy a package in, sign it, add a release entry to the log
   islet registry yank <dir> <name>[/vN]@<version> --key <id> --log-key <id>
                                    withdraw a release (a new log entry; nothing is deleted)
-  islet registry revoke <dir> <key id> --log-key <id>
+  islet registry revoke <dir> <key id> --log-key <id> [--key <id>]   (--key: the key holder's own request)
                                    record that a key is compromised
   islet registry cosign <dir> --key <id> --log-key <id>
                                    a witness checks the log has only grown, then cosigns the head
@@ -68,7 +70,7 @@ usage:
                                    sign a package folder; kept in the store's sigs/ unless --out
   islet verify <dir> [--sig <file>] [--signer <id>]
                                    check the signatures for a package folder
-  islet install <dir> [--index <dir>]
+  islet install <dir> [--index <dir>] [--registry <dir-or-address>]
                                    store and link every locked package under deps/, write deps/map.yaml
   islet tree <dir>                 print each member's dependencies from the islet.lock
 
@@ -202,15 +204,18 @@ fn run(args: &[String]) -> Result<(), String> {
             let mut index: Option<String> = std::env::var("ISLET_INDEX").ok();
             let mut check = false;
             let mut require_signed = false;
-            let mut registry_dir: Option<PathBuf> = None;
+            let mut registry_loc: Option<String> = None;
             let mut it = rest.iter();
             while let Some(a) = it.next() {
                 match *a {
                     "--check" => check = true,
                     "--require-signed" => require_signed = true,
                     "--registry" => {
-                        registry_dir =
-                            Some(PathBuf::from(it.next().ok_or("--registry needs a folder")?))
+                        registry_loc = Some(
+                            it.next()
+                                .ok_or("--registry needs a folder or address")?
+                                .to_string(),
+                        )
                     }
                     "--index" => {
                         index = Some(it.next().ok_or("--index needs a folder")?.to_string())
@@ -221,17 +226,12 @@ fn run(args: &[String]) -> Result<(), String> {
             let dir = Path::new(dir);
             let (members, root) = load_workspace(dir)?;
             let store = open(&dir.display().to_string())?;
-            let client = match &registry_dir {
+            let client = match &registry_loc {
                 Some(r) => {
                     let c = registry::Client::open(r, store.root())?;
                     let head = c.check_head()?;
                     let audit = c.audit(&head)?;
-                    index = Some(
-                        registry::Registry { dir: r.clone() }
-                            .pkg_root()
-                            .display()
-                            .to_string(),
-                    );
+                    index = Some(c.cache_dir().display().to_string());
                     Some((c, head, audit))
                 }
                 None => None,
@@ -239,7 +239,15 @@ fn run(args: &[String]) -> Result<(), String> {
             let idx = resolve::DirIndex {
                 root: PathBuf::from(index.unwrap_or_default()),
             };
-            let mut lock = resolve::resolve_workspace(&members, &root, &idx)?;
+            let remote;
+            let resolver: &dyn resolve::Index = match &client {
+                Some((c, head, _)) => {
+                    remote = registry::RemoteIndex::new(c, head);
+                    &remote
+                }
+                None => &idx,
+            };
+            let mut lock = resolve::resolve_workspace(&members, &root, resolver)?;
             let file = dir.join("islet.lock");
             let previous = match std::fs::read_to_string(&file) {
                 Ok(src) => Some(
@@ -292,7 +300,7 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             Ok(())
         }
-        ["registry", sub, dir, rest @ ..] => registry_command(sub, Path::new(dir), rest),
+        ["registry", sub, dir, rest @ ..] => registry_command(sub, dir, rest),
         ["trust", dir, key, signer] => {
             let file = Path::new(dir).join("islet.lock");
             let shown = file.display().to_string();
@@ -532,11 +540,19 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         ["install", dir, rest @ ..] => {
             let mut index: Option<String> = std::env::var("ISLET_INDEX").ok();
+            let mut registry_loc: Option<String> = None;
             let mut it = rest.iter();
             while let Some(a) = it.next() {
                 match *a {
                     "--index" => {
                         index = Some(it.next().ok_or("--index needs a folder")?.to_string())
+                    }
+                    "--registry" => {
+                        registry_loc = Some(
+                            it.next()
+                                .ok_or("--registry needs a folder or address")?
+                                .to_string(),
+                        )
                     }
                     _ => return Err(USAGE.to_string()),
                 }
@@ -546,10 +562,24 @@ fn run(args: &[String]) -> Result<(), String> {
             let src = std::fs::read_to_string(&file)
                 .map_err(|e| format!("{shown}: {e}; run `islet lock {dir}` first"))?;
             let l = lock::parse_lock(&shown, &src).map_err(|d| d.to_string())?;
+            let store = open(dir)?;
+            if let Some(loc) = &registry_loc {
+                // Fetch what the lock names: each file is checked against the hashes in the lock before it is kept.
+                let c = registry::Client::open(loc, store.root())?;
+                for p in &l.packages {
+                    c.fetch_package(
+                        &p.name,
+                        &p.version.to_string(),
+                        &p.hash,
+                        p.signer.as_deref(),
+                    )?;
+                }
+                index = Some(c.cache_dir().display().to_string());
+            }
             let idx = resolve::DirIndex {
                 root: PathBuf::from(index.unwrap_or_default()),
             };
-            let r = install::install(Path::new(dir), &l, &idx, &open(dir)?)?;
+            let r = install::install(Path::new(dir), &l, &idx, &store)?;
             println!(
                 "installed {} packages ({} newly stored, {} linked) into {}",
                 l.packages.len(),
@@ -688,11 +718,27 @@ fn one<'a>(pairs: &[(&'a str, &'a str)], flag: &str) -> Result<&'a str, String> 
         .ok_or_else(|| format!("this needs {flag} <value>"))
 }
 
-fn registry_command(sub: &str, dir: &Path, rest: &[&str]) -> Result<(), String> {
+fn registry_command(sub: &str, location: &str, rest: &[&str]) -> Result<(), String> {
+    let dir = Path::new(location);
     let store = Store::for_project(Path::new(".")).map_err(|e| e.to_string())?;
     let sroot = store.root().to_path_buf();
     let secret = |id: &str| registry::secret(&sroot, id);
     match sub {
+        "serve" => {
+            let p = flag_pairs(rest, &["--port"])?;
+            let port: u16 = match p.first() {
+                Some((_, n)) => n.parse().map_err(|_| "--port is a number")?,
+                None => 8080,
+            };
+            registry::Registry::open(dir)?;
+            let listener = std::net::TcpListener::bind(("127.0.0.1", port))
+                .map_err(|e| format!("port {port}: {e}"))?;
+            println!(
+                "serving {} at http://127.0.0.1:{port}/ (ctrl-c to stop)",
+                dir.display()
+            );
+            registry::serve(dir, listener, None)
+        }
         "init" => {
             let p = flag_pairs(rest, &["--origin", "--log-key"])?;
             let (origin, log) = (one(&p, "--origin")?, one(&p, "--log-key")?);
@@ -735,12 +781,25 @@ fn registry_command(sub: &str, dir: &Path, rest: &[&str]) -> Result<(), String> 
         }
         "revoke" => {
             let (id, rest) = rest.split_first().ok_or(USAGE)?;
-            let p = flag_pairs(rest, &["--log-key"])?;
+            let p = flag_pairs(rest, &["--log-key", "--key"])?;
             if !lock::is_key_id(id) {
                 return Err(format!("`{id}` is not a key id"));
             }
-            let i = registry::Registry::open(dir)?.revoke(id, &secret(one(&p, "--log-key")?)?)?;
-            println!("revoked {id} (entry {i})");
+            let holder = match p.iter().find(|(f, _)| *f == "--key") {
+                Some((_, v)) => Some(secret(v)?),
+                None => None,
+            };
+            let i = registry::Registry::open(dir)?.revoke(
+                id,
+                holder.as_ref(),
+                &secret(one(&p, "--log-key")?)?,
+            )?;
+            let by = if holder.is_some() {
+                "by its holder"
+            } else {
+                "by the operator"
+            };
+            println!("revoked {id} {by} (entry {i})");
             Ok(())
         }
         "cosign" => {
@@ -766,7 +825,7 @@ fn registry_command(sub: &str, dir: &Path, rest: &[&str]) -> Result<(), String> 
                 None => 0,
             };
             let t = registry::Trust {
-                origin: registry::Registry::open(dir)?.origin()?,
+                origin: registry::origin_of(location)?,
                 log_key: log_key.to_string(),
                 witnesses,
                 need,
@@ -792,7 +851,7 @@ fn registry_command(sub: &str, dir: &Path, rest: &[&str]) -> Result<(), String> 
             if !rest.is_empty() {
                 return Err(USAGE.to_string());
             }
-            let c = registry::Client::open(dir, &sroot)?;
+            let c = registry::Client::open(location, &sroot)?;
             let head = c.check_head()?;
             let a = c.audit(&head)?;
             println!(

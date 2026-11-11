@@ -130,7 +130,8 @@ A library with no network in it. What is conventional and what is ours:
 ### 4b. How S-4 is built (`src/registry.rs`)
 
 A registry is a folder of the static files a CDN would serve: `registry.yaml`, `head.yaml`, `tile/...`, `lookup/<key>/<version>`
-and `pkg/<key>/<version>/` with `pkg/<key>/<version>.sigs/`. The commands:
+`pkg/<key>/<version>.tree` (the file list: hash, length, path per line), `pkg/<key>/<version>.sigs/` and `blob/<hex>` (each file's
+canonical bytes, named by hash). The commands:
 
 - Operator: `islet registry init | publish | yank | revoke`, each signed with a key from the key store; a witness runs
   `islet registry cosign`, which refuses a head whose log signature is bad or that does not extend the last head it
@@ -144,9 +145,16 @@ and `pkg/<key>/<version>/` with `pkg/<key>/<version>.sigs/`. The commands:
   that disagrees with the log, and warns about a revoked key that is still pinned. `islet install --index <reg>/pkg`
   needs no proofs: the lock already holds the checked hashes and signers.
 - Equivalent of a transparency log's monitor: `islet registry check <dir>` does the head and log checks alone.
-- **Not built:** an HTTP transport (the client reads a folder; the layout is the one to serve), a way to look up yanks
-  and revocations without reading every entry (needed once the log is large; the registry card's), who may ask for
-  a revocation (here the operator who holds the log key), and the per-shard heads (sharding is in the library,
+- Transport: `<dir>` may be a folder or an `http(s)://` address. `islet registry serve <dir> [--port n]` serves a folder
+  read-only (GET only, no path may leave it). The client fetches through the system `curl` (no TLS library in Islet;
+  no redirects, 256 MiB cap), then checks every byte: the file list against the tree hash, each blob against its hash
+  and length, and the result against the log. Fetched packages are cached in `<store>/registries/<origin>/pkg/`;
+  `islet lock --registry` and `islet install --registry` use the cache.
+- Revocation (Dennis, 2026-11-11): the key holder or the operator may revoke. A holder's request carries their
+  own signature (`islet-revoke-v1`, public key and signature in the entry's `proof`), which the audit checks, so
+  an operator cannot forge one; an operator's revocation has proof `none`. Clients treat both the same.
+- **Not built:** a way to look up yanks
+  and revocations without reading every entry (needed once the log is large; the registry card's), the per-shard heads (sharding is in the library,
   not used by the folder registry).
 
 ## 5. Stages
@@ -156,7 +164,7 @@ and `pkg/<key>/<version>/` with `pkg/<key>/<version>.sigs/`. The commands:
 | S-1 | `islet key gen`, `islet sign <dir>`, `islet verify <dir>`; the statement format; `.sig` in the store | A tree is signed, verified, and a changed file or a changed version makes verification fail. **Built** (signatures live in `<store>/sigs/<tree hash>/<signer>.sig`, outside the tree, since a signature inside it would change its hash). |
 | S-2 | The signer pin in `islet.lock` (with schema and example), `islet trust`, rotation statements | A lock records the signer; a different signer is refused; rotation by the old key is accepted. **Built** (see section 3a). |
 | S-3 | Log formats: tiles, signed tree heads, inclusion and consistency proofs, witness cosignatures, as a library with test vectors | Proofs verify against a log built in the tests, and tampering with any tile or head is caught. **Built** (section 4a). |
-| S-4 | A local test registry that serves tiles, and `islet` fetching with proof checks (this is card I-5) | A package is published, fetched, verified and rejected when tampered with. **Built** for a folder registry (section 4b); HTTP and a scalable yank/revoke lookup are not. |
+| S-4 | A local test registry that serves tiles, and `islet` fetching with proof checks (this is card I-5) | A package is published, fetched, verified and rejected when tampered with. **Built** for a folder registry (section 4b); HTTP is built too; a scalable yank/revoke lookup is not. |
 
 S-1 and S-2 do not need a network or a registry, so they come first and are useful on their own (a monorepo can sign
 internal packages today).
