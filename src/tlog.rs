@@ -43,6 +43,44 @@ pub fn leaf_hash(data: &[u8]) -> Hash {
 }
 
 /// `H(0x01 || left || right)`: an interior node.
+/// The roots of the perfect subtrees that make up a tree, left to right: all that is needed to keep adding leaves
+/// and to know the root, without the leaves themselves.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Frontier {
+    pub size: u64,
+    pub nodes: Vec<Hash>,
+}
+
+impl Frontier {
+    pub fn push(&mut self, leaf: Hash) {
+        let mut h = leaf;
+        let mut s = self.size;
+        while s & 1 == 1 {
+            let left = self
+                .nodes
+                .pop()
+                .expect("a frontier has one node per set bit");
+            h = node_hash(&left, &h);
+            s >>= 1;
+        }
+        self.nodes.push(h);
+        self.size += 1;
+    }
+
+    pub fn root(&self) -> Hash {
+        let mut it = self.nodes.iter().rev();
+        let Some(last) = it.next() else {
+            return empty_root();
+        };
+        it.fold(*last, |r, left| node_hash(left, &r))
+    }
+
+    /// Does the list of nodes fit the size? (One per set bit.)
+    pub fn fits(&self) -> bool {
+        self.nodes.len() as u32 == self.size.count_ones()
+    }
+}
+
 pub fn node_hash(left: &Hash, right: &Hash) -> Hash {
     let mut v = [0u8; 65];
     v[0] = 1;
@@ -1366,6 +1404,20 @@ mod tests {
         }
         .to_bytes()
         .is_err());
+    }
+
+    #[test]
+    fn a_frontier_keeps_the_root_while_leaves_are_added() {
+        let mut l = Log::new();
+        let mut f = Frontier::default();
+        assert_eq!(f.root(), empty_root());
+        for i in 0..40u32 {
+            let e = format!("entry {i}");
+            l.append(e.as_bytes());
+            f.push(leaf_hash(e.as_bytes()));
+            assert_eq!(f.root(), l.root(), "size {}", i + 1);
+            assert!(f.fits());
+        }
     }
 
     fn signed(l: &Log, origin: &str, secret: &[u8; 32]) -> SignedHead {

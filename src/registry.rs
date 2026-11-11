@@ -475,8 +475,16 @@ fn read_head(src: &dyn Fetch) -> Result<SignedHead, String> {
 
 /// All entries of the log of `size` leaves, read from the entry tiles.
 fn read_entries(src: &dyn Fetch, size: u64) -> Result<Vec<Vec<u8>>, String> {
+    read_entries_from(src, 0, size)
+}
+
+/// The entries from index `from` up to `size`, reading only the tiles that hold them.
+fn read_entries_from(src: &dyn Fetch, from: u64, size: u64) -> Result<Vec<Vec<u8>>, String> {
     let mut out = Vec::new();
-    for n in 0..size.div_ceil(TILE_WIDTH) {
+    if from >= size {
+        return Ok(out);
+    }
+    for n in (from / TILE_WIDTH)..size.div_ceil(TILE_WIDTH) {
         let width = (size - n * TILE_WIDTH).min(TILE_WIDTH);
         let path = tlog::entry_tile_path(n, width);
         let entries =
@@ -487,7 +495,8 @@ fn read_entries(src: &dyn Fetch, size: u64) -> Result<Vec<Vec<u8>>, String> {
                 entries.len()
             ));
         }
-        out.extend(entries);
+        let skip = from.saturating_sub(n * TILE_WIDTH) as usize;
+        out.extend(entries.into_iter().skip(skip));
     }
     Ok(out)
 }
@@ -592,6 +601,124 @@ pub struct Audit {
     pub yanked: BTreeSet<(String, String)>,
     pub revoked: BTreeSet<String>,
     pub entries: u64,
+    /// Every yank entry seen (package, version, signer), kept so later entries can be added to a saved audit.
+    yank_entries: Vec<(String, String, String)>,
+    /// The tree of leaf hashes so far, so a later audit reads only the new entries.
+    frontier: tlog::Frontier,
+}
+
+impl Audit {
+    fn add(&mut self, index: u64, bytes: &[u8]) -> Result<(), String> {
+        match Entry::parse(bytes).map_err(|e| format!("entry {index}: {e}"))? {
+            Entry::Release {
+                package,
+                version,
+                tree,
+                signer,
+            } => {
+                let v = self.releases.entry((package, version)).or_default();
+                if !v.contains(&(tree.clone(), signer.clone())) {
+                    v.push((tree, signer));
+                }
+            }
+            Entry::Yank {
+                package,
+                version,
+                signer,
+                ..
+            } => self.yank_entries.push((package, version, signer)),
+            Entry::Revoke { key, proof } => {
+                if !crate::tlog::revoke_proof_ok(&key, &proof) {
+                    return Err(format!(
+                        "entry {index}: the revoke proof for {key} is not its signature"
+                    ));
+                }
+                self.revoked.insert(key);
+            }
+        }
+        self.frontier.push(tlog::leaf_hash(bytes));
+        self.entries += 1;
+        Ok(())
+    }
+
+    /// Work out which releases are yanked: only the release's own signer can withdraw it.
+    fn settle(&mut self) {
+        self.yanked.clear();
+        for (package, version, signer) in &self.yank_entries {
+            if self
+                .releases
+                .get(&(package.clone(), version.clone()))
+                .is_some_and(|v| v.iter().any(|(_, s)| s == signer))
+            {
+                self.yanked.insert((package.clone(), version.clone()));
+            }
+        }
+    }
+
+    /// The saved form, kept in the store: what was learnt from the first `entries` entries.
+    fn to_text(&self) -> String {
+        let mut t = format!("islet-audit-v1\nsize: {}\nfrontier:", self.entries);
+        for n in &self.frontier.nodes {
+            t.push(' ');
+            t.push_str(&tlog::hex(n));
+        }
+        t.push('\n');
+        for ((p, v), list) in &self.releases {
+            for (tree, signer) in list {
+                t.push_str(&format!("release {p} {v} {tree} {signer}\n"));
+            }
+        }
+        for (p, v, s) in &self.yank_entries {
+            t.push_str(&format!("yank {p} {v} {s}\n"));
+        }
+        for k in &self.revoked {
+            t.push_str(&format!("revoke {k}\n"));
+        }
+        t
+    }
+
+    /// Read a saved audit. Anything odd means the file is ignored and the log read again.
+    fn parse(src: &str) -> Option<Audit> {
+        let mut lines = src.lines();
+        if lines.next()? != "islet-audit-v1" {
+            return None;
+        }
+        let size: u64 = lines.next()?.strip_prefix("size: ")?.parse().ok()?;
+        let nodes = lines.next()?.strip_prefix("frontier:")?;
+        let mut a = Audit {
+            entries: size,
+            ..Audit::default()
+        };
+        a.frontier.size = size;
+        for h in nodes.split_whitespace() {
+            let bytes = crate::sign::unhex(h)?;
+            a.frontier.nodes.push(bytes.try_into().ok()?);
+        }
+        if !a.frontier.fits() {
+            return None;
+        }
+        for line in lines {
+            let w: Vec<&str> = line.split(' ').collect();
+            match w.as_slice() {
+                ["release", p, v, tree, signer] => {
+                    a.releases
+                        .entry((p.to_string(), v.to_string()))
+                        .or_default()
+                        .push((tree.to_string(), signer.to_string()));
+                }
+                ["yank", p, v, s] => {
+                    a.yank_entries
+                        .push((p.to_string(), v.to_string(), s.to_string()))
+                }
+                ["revoke", k] => {
+                    a.revoked.insert(k.to_string());
+                }
+                _ => return None,
+            }
+        }
+        a.settle();
+        Some(a)
+    }
 }
 
 pub struct Client {
@@ -667,55 +794,40 @@ impl Client {
         Ok(head)
     }
 
-    /// Read every entry, check that they hash to the head's root, and sum up releases, yanks and revocations.
+    fn audit_path(&self) -> PathBuf {
+        self.store_root
+            .join("registries")
+            .join(format!("{}.audit", self.trust.origin.replace('/', "_")))
+    }
+
+    /// What the whole log says, checked to be the log the head vouches for. The first time every entry is read;
+    /// after that only the entries added since the last audit are, and the root the old and new entries make
+    /// together must be the head's. (Fetching is then proportional to what is new; the saved summary on this
+    /// machine still grows with the log.)
     pub fn audit(&self, head: &SignedHead) -> Result<Audit, String> {
-        let entries = read_entries(&*self.src, head.head.size)?;
-        if Log::from_entries(entries.clone()).root() != head.head.root {
+        let saved = fs::read_to_string(self.audit_path())
+            .ok()
+            .and_then(|t| Audit::parse(&t))
+            .filter(|a| a.entries <= head.head.size);
+        let mut a = saved.unwrap_or_default();
+        let from = a.entries;
+        for (k, bytes) in read_entries_from(&*self.src, from, head.head.size)?
+            .iter()
+            .enumerate()
+        {
+            a.add(from + k as u64, bytes)?;
+        }
+        if a.frontier.root() != head.head.root {
+            // Either the registry rewrote its log, or the saved audit is stale: read everything once to tell.
+            if from > 0 {
+                let _ = fs::remove_file(self.audit_path());
+                return self.audit(head);
+            }
             return Err("the entries do not hash to the signed head's root".into());
         }
-        let mut a = Audit {
-            entries: head.head.size,
-            ..Audit::default()
-        };
-        let mut yanks = Vec::new();
-        for (i, bytes) in entries.iter().enumerate() {
-            match Entry::parse(bytes).map_err(|e| format!("entry {i}: {e}"))? {
-                Entry::Release {
-                    package,
-                    version,
-                    tree,
-                    signer,
-                } => {
-                    let v = a.releases.entry((package, version)).or_default();
-                    if !v.contains(&(tree.clone(), signer.clone())) {
-                        v.push((tree, signer));
-                    }
-                }
-                Entry::Yank {
-                    package,
-                    version,
-                    signer,
-                    ..
-                } => yanks.push((package, version, signer)),
-                Entry::Revoke { key, proof } => {
-                    if !crate::tlog::revoke_proof_ok(&key, &proof) {
-                        return Err(format!(
-                            "entry {i}: the revoke proof for {key} is not its signature"
-                        ));
-                    }
-                    a.revoked.insert(key);
-                }
-            }
-        }
-        for (package, version, signer) in yanks {
-            // Only the release's own signer can withdraw it.
-            if a.releases
-                .get(&(package.clone(), version.clone()))
-                .is_some_and(|v| v.iter().any(|(_, s)| *s == signer))
-            {
-                a.yanked.insert((package, version));
-            }
-        }
+        a.settle();
+        // A failure to save only costs a full read next time.
+        let _ = write(&self.audit_path(), a.to_text().as_bytes());
         Ok(a)
     }
 
@@ -1214,6 +1326,60 @@ mod tests {
     }
 
     #[test]
+    fn a_later_audit_reads_only_the_new_entries() {
+        use std::cell::RefCell;
+        struct Counting(DirFetch, std::rc::Rc<RefCell<Vec<String>>>);
+        impl Fetch for Counting {
+            fn get(&self, path: &str) -> Result<Vec<u8>, String> {
+                self.1.borrow_mut().push(path.to_string());
+                self.0.get(path)
+            }
+        }
+        let e = env("incremental");
+        let a = sign::generate().unwrap();
+        e.trust(&[], 0);
+        // 300 entries: one full entry tile and a partial one.
+        for i in 0..300 {
+            e.publish("json", &format!("1.{i}.0"), "x", &a).unwrap();
+        }
+        let seen = std::rc::Rc::new(RefCell::new(Vec::new()));
+        let mut c = e.client().unwrap();
+        c.src = Box::new(Counting(DirFetch(e.reg.dir.clone()), seen.clone()));
+        let head = c.check_head().unwrap();
+        let full = c.audit(&head).unwrap();
+        assert_eq!(full.entries, 300);
+        seen.borrow_mut().clear();
+        // Nothing new: nothing read.
+        c.audit(&head).unwrap();
+        assert!(seen.borrow().is_empty(), "{:?}", seen.borrow());
+        // Three more entries and a revocation: only the last entry tile is read, and the summary is the same
+        // as a from-scratch audit.
+        for i in 0..3 {
+            e.publish("json", &format!("2.{i}.0"), "x", &a).unwrap();
+        }
+        e.reg.revoke(&id(&a), None, &e.log_secret).unwrap();
+        let head = c.check_head().unwrap();
+        seen.borrow_mut().clear();
+        let inc = c.audit(&head).unwrap();
+        let entry_tiles: Vec<_> = seen
+            .borrow()
+            .iter()
+            .filter(|p| p.starts_with("tile/entries/"))
+            .cloned()
+            .collect();
+        assert_eq!(entry_tiles.len(), 1, "{entry_tiles:?}");
+        let _ = fs::remove_file(c.audit_path());
+        let scratch = c.audit(&head).unwrap();
+        assert_eq!(inc.entries, 304);
+        assert_eq!(inc.releases, scratch.releases);
+        assert_eq!(inc.revoked, scratch.revoked);
+        assert!(inc.revoked.contains(&id(&a)));
+        // A saved audit from a different log is not believed: the root will not match, so it reads everything.
+        fs::write(c.audit_path(), "garbage").unwrap();
+        assert!(c.audit(&head).is_ok());
+    }
+
+    #[test]
     fn tampered_entries_and_tiles_are_caught() {
         let e = env("tamper");
         let a = sign::generate().unwrap();
@@ -1224,6 +1390,8 @@ mod tests {
         let c = e.client().unwrap();
         let head = c.check_head().unwrap();
         assert!(c.audit(&head).is_ok());
+        // (The saved audit would answer without reading; remove it to read the tiles again.)
+        let _ = fs::remove_file(c.audit_path());
         // An entry rewritten in place: the entries no longer hash to the signed root.
         let tile = file_of(&e.reg.dir, &tlog::entry_tile_path(0, 5));
         let good = fs::read(&tile).unwrap();
@@ -1233,6 +1401,7 @@ mod tests {
         fs::write(&tile, &bad).unwrap();
         assert!(c.audit(&head).is_err());
         fs::write(&tile, &good).unwrap();
+        let _ = fs::remove_file(c.audit_path());
         // A hash tile rewritten: the inclusion proof computed from it no longer leads to the root.
         let htile = file_of(&e.reg.dir, &tlog::tile_path(0, 0, 5));
         let hgood = fs::read(&htile).unwrap();

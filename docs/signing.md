@@ -153,9 +153,14 @@ canonical bytes, named by hash). The commands:
 - Revocation (Dennis, 2026-11-11): the key holder or the operator may revoke. A holder's request carries their
   own signature (`islet-revoke-v1`, public key and signature in the entry's `proof`), which the audit checks, so
   an operator cannot forge one; an operator's revocation has proof `none`. Clients treat both the same.
-- **Not built:** a way to look up yanks
-  and revocations without reading every entry (needed once the log is large; the registry card's), the per-shard heads (sharding is in the library,
-  not used by the folder registry).
+- Audit cost: the first audit reads every entry; the summary (releases, yanks, revocations, and the frontier of the
+  Merkle tree) is saved in `<store>/registries/<origin>.audit`. Later audits fetch only the entries added since, add
+  their leaves to the saved frontier, and require the resulting root to be the head's, so a rewritten history or a
+  stale file is caught and the log is read again. Network cost follows what is new; the saved summary on the
+  client still grows with the log.
+- **Not built:** a lookup that avoids even the saved summary (needs sharded logs with a head per shard, or a separate
+  small revocation log, which is a design choice for the hosted registry), and the per-shard heads (sharding is in
+  the library, not used by the folder registry).
 
 ## 5. Stages
 
