@@ -51,6 +51,20 @@ pub fn public_of(secret: &[u8; 32]) -> [u8; 32] {
     SigningKey::from_bytes(secret).verifying_key().to_bytes()
 }
 
+/// Sign arbitrary bytes (the log's heads and witness cosignatures use this). Returns the public key and the
+/// signature; callers add their own domain line to `msg` first.
+pub fn sign_bytes(secret: &[u8; 32], msg: &[u8]) -> ([u8; 32], [u8; 64]) {
+    let key = SigningKey::from_bytes(secret);
+    (key.verifying_key().to_bytes(), key.sign(msg).to_bytes())
+}
+
+/// Check a signature over `msg` (strict: no malleable encodings, no small-order keys).
+pub fn verify_bytes(public: &[u8; 32], msg: &[u8], signature: &[u8; 64]) -> bool {
+    VerifyingKey::from_bytes(public)
+        .and_then(|k| k.verify_strict(msg, &Signature::from_bytes(signature)))
+        .is_ok()
+}
+
 /// The text that is signed. The fields are checked first so none can carry a newline or a different meaning.
 pub fn statement(package: &str, version: &str, tree: &str) -> Result<String, String> {
     if !is_dep_key(package) {
