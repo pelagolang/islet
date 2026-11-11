@@ -92,6 +92,11 @@
           "type": "string",
           "format": "uri"
         },
+        "publisher": {
+          "description": "The key that signs this package's releases (see islet key gen). The first release fixes it; a later release naming another key must be reached by a signed rotation.",
+          "type": "string",
+          "pattern": "^key:[0-9a-f]{64}$"
+        },
         "publish": {
           "description": "false keeps the package out of the index.",
           "type": "boolean",

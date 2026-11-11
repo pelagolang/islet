@@ -118,6 +118,8 @@ pub struct Package {
     pub authors: Vec<String>,
     pub repository: Option<String>,
     pub publish: bool,
+    /// The key that signs this package's releases, `key:<64 hex>` (`docs/signing.md`).
+    pub publisher: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -420,6 +422,7 @@ pub fn parse_manifest(file: &str, src: &str) -> Result<Manifest, Diag> {
                 "authors",
                 "repository",
                 "publish",
+                "publisher",
             ],
             "package",
         )?;
@@ -463,6 +466,19 @@ pub fn parse_manifest(file: &str, src: &str) -> Result<Manifest, Diag> {
                 v: Val::Bool(b), ..
             }) => *b,
             Some(n) => return Err(PErr::new(n.at, "`publish` must be true or false")),
+        };
+        let publisher = match pt.get("publisher") {
+            None => None,
+            Some(n) => {
+                let s = str_of(n, "`publisher`")?;
+                if !crate::lock::is_key_id(&s) {
+                    return Err(PErr::new(
+                        n.at,
+                        "`publisher` must be `key:` and 64 lowercase hex digits",
+                    ));
+                }
+                Some(s)
+            }
         };
         let deps = root
             .get("dependencies")
@@ -523,6 +539,7 @@ pub fn parse_manifest(file: &str, src: &str) -> Result<Manifest, Diag> {
                 authors,
                 repository,
                 publish,
+                publisher,
             },
             dependencies: deps,
             generate,
@@ -818,5 +835,17 @@ mod tests {
         for bad in ["1.2", "01.2.3", "1.2.3.4", "1.2.x", "1.2.3-", "", "v1.2.3"] {
             assert!(Version::parse(bad).is_none(), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_publisher_is_a_key_id() {
+        let key = format!("key:{}", "ab".repeat(32));
+        let ok =
+            format!("format: 1\npackage:\n  name: p\n  version: 1.0.0\n  publisher: \"{key}\"\n");
+        let m = parse_manifest("islet.yaml", &ok).unwrap();
+        assert_eq!(m.package.publisher.as_deref(), Some(key.as_str()));
+        let bad = ok.replace(&key, "key:abc");
+        let e = parse_manifest("islet.yaml", &bad).unwrap_err();
+        assert!(e.msg.contains("`publisher` must be"), "{e}");
     }
 }

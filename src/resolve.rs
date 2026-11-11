@@ -306,6 +306,16 @@ impl DirIndex {
         self.root.join(key).join(format!("{version}.sigs"))
     }
 
+    /// The `publisher` a release names in its own `islet.yaml`, if it names one and the file reads.
+    pub fn publisher(&self, key: &str, version: &Version) -> Option<String> {
+        let file = self.dir_of(key, version).join("islet.yaml");
+        let src = std::fs::read_to_string(&file).ok()?;
+        manifest::parse_manifest(&file.display().to_string(), &src)
+            .ok()?
+            .package
+            .publisher
+    }
+
     /// Key rotations for a package.
     pub fn rotations_dir(&self, key: &str) -> PathBuf {
         self.root.join(key).join("rotations")
