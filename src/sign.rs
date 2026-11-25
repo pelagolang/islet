@@ -1,4 +1,4 @@
-//! Signing a package tree (`docs/signing.md`).
+//! Signing a package tree (the private `signing` design note).
 //!
 //! A signature is over a short canonical statement, never an archive:
 //!

@@ -5,4 +5,4 @@
   `refactor`, `docs`, `test`, `chore`, `ci`, `build`, `revert`. The summary starts lowercase and has no trailing period.
   Use `!` or a `BREAKING CHANGE:` footer for breaking changes. CI lints both.
 - Pull requests use the template; tick every box (mark N/A ones as N/A).
-- Process follows the Pelago workflow: <https://github.com/pelagolang/pelago/blob/main/docs/process/workflow.md>.
+- Process follows the Pelago workflow, kept in the private plans repo.

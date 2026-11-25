@@ -12,8 +12,7 @@ The package manager for [Pelago](https://github.com/pelagolang/pelago). The comm
 Status: early, and usable from a folder. Built: the store, `islet.yaml` / `monorepo.yaml` / `islet.lock`, minimal version
 selection, `islet add`, `remove`, `lock`, `install` and `tree`, Ed25519 signing with signer pins, and a registry with a
 transparency log, served from a folder or over HTTP. Not built: a public registry, `islet update`, `islet regen` and
-`publish`/`audit`/`search`. See [docs/design.md](docs/design.md) for what is decided, [docs/signing.md](docs/signing.md)
-for signing and the registry, and [docs/plan.md](docs/plan.md) for the milestones.
+`publish`/`audit`/`search`. The design, signing model and milestones are kept in a private planning repository.
 
 ## What it is
 
@@ -33,7 +32,6 @@ for signing and the registry, and [docs/plan.md](docs/plan.md) for the milestone
 
 - `schema/`: JSON Schemas for `islet.yaml` and `monorepo.yaml`. Published from the website repo to
   <https://pelagolang.github.io/website/schema/>; the tool embeds the same files.
-- `docs/`: design and plan; [`docs/brand.md`](docs/brand.md) is the brand record.
 - `brand/`: logo, icons, file icons and social images, with the script that builds them.
 
 ## License
