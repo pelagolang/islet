@@ -19,7 +19,7 @@
 //! leads to the head's root. It also refuses yanked releases and revoked keys.
 //!
 //! Not here: an HTTP transport (the files are read from a folder), and a lookup of yanks and revocations that
-//! scales (the audit reads every entry; a registry with a billion needs an index, which is the registry card's).
+//! scales (the audit reads every entry; a registry with a billion needs an index, which is not designed yet).
 
 use crate::blake3;
 use crate::keys;
