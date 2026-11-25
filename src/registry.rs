@@ -1,4 +1,4 @@
-//! The local test registry and the client that checks it (`docs/signing.md`, card S-4).
+//! The local test registry and the client that checks it (`docs/signing.md`).
 //!
 //! A registry here is a folder of static files, the same files a CDN would serve, so the real one changes only the
 //! transport:

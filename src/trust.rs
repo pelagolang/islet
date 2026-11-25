@@ -1,4 +1,4 @@
-//! Who may publish a package: the signer pin in `islet.lock` (`docs/signing.md`, card S-2).
+//! Who may publish a package: the signer pin in `islet.lock` (`docs/signing.md`).
 //!
 //! Nothing here trusts a name. A package's publisher is a key, and the lock remembers which one:
 //!
