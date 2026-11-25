@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pelagolang.github.io/website/schema/monorepo/1.json",
+  "$id": "https://pelagolang.github.io/schema/monorepo/1.json",
   "title": "monorepo.yaml",
   "description": "The root file of a monorepo: its members, the shared dependency table and the exceptions to one version per package. Validates the YAML data model, which matches JSON.",
   "type": "object",

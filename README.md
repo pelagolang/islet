@@ -31,7 +31,7 @@ transparency log, served from a folder or over HTTP. Not built: a public registr
 ## Repository layout
 
 - `schema/`: JSON Schemas for `islet.yaml` and `monorepo.yaml`. Published from the website repo to
-  <https://pelagolang.github.io/website/schema/>; the tool embeds the same files.
+  <https://pelagolang.github.io/schema/>; the tool embeds the same files.
 - `brand/`: logo, icons, file icons and social images, with the script that builds them.
 
 ## License

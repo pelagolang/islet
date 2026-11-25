@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://pelagolang.github.io/website/schema/islet/1.json
+# yaml-language-server: $schema=https://pelagolang.github.io/schema/islet/1.json
 format: 1
 
 package:
