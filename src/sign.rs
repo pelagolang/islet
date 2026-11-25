@@ -1,4 +1,4 @@
-//! Signing a package tree (`docs/signing.md`, card S-1).
+//! Signing a package tree (the private `signing` design note, card S-1).
 //!
 //! A signature is over a short canonical statement, never an archive:
 //!

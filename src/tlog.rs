@@ -1,4 +1,4 @@
-//! The transparency log: formats and proofs (`docs/signing.md` section 4, card S-3). A library with no network and
+//! The transparency log: formats and proofs (the private `signing` design note section 4, card S-3). A library with no network and
 //! no registry in it; the local test registry (S-4) and, later, the real one are built on top.
 //!
 //! **Conventional parts.** The Merkle tree and its inclusion and consistency proofs are RFC 6962 / RFC 9162
