@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pelagolang.github.io/website/schema/islet/1.json",
+  "$id": "https://pelagolang.github.io/schema/islet/1.json",
   "title": "islet.yaml",
   "description": "What a Pelago package is and what it depends on. Validates the YAML data model, which matches JSON.",
   "type": "object",
