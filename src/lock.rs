@@ -20,7 +20,7 @@
 //! packages:                     # every package in the closure
 //!   json@1.5.0:
 //!     hash: "<64 hex digits: the store address of the package's source>"
-//!     signer: "key:<64 hex digits>"   # optional: the pinned publisher (private signing design note)
+//!     signer: "key:<64 hex digits>"   # optional: the pinned publisher
 //!   json/v2@2.0.1:
 //!     hash: "<64 hex digits>"
 //!     needs:
