@@ -31,7 +31,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 BRAND = HERE.parent
 
-# Palette (brand record, private plans repo). Light is for light backgrounds, dark for dark ones.
+# Palette Light is for light backgrounds, dark for dark ones.
 LIGHT = dict(shell="#0F9AA6", gold="#FFC83D", sun="#FF6F3C", green="#12A150", ink="#0E3440", paper="#FFFFFF", sand="#FFF1C9")
 DARK = dict(shell="#4FD6D0", gold="#FFD15C", sun="#FF8556", green="#3DD68C", ink="#FFF1C9", paper="#08262D", sand="#FFF1C9")
 DEEP = "#08262D"   # dark tile and dark page

@@ -1,6 +1,6 @@
 # Islet brand assets
 
-The logo, icons, file icons and social images for Islet. The design record and rules are kept in the private plans repo (`brand/islet/`).
+The logo, icons, file icons and social images for Islet.
 
 `build/build.py` generates every file below, so the assets can be rebuilt after a change. The SVG files are the source; the PNG, ICO and ICNS files are exports of them. The wordmark in every logo SVG is outlined to paths, so no font is needed to display them.
 

@@ -1,4 +1,4 @@
-//! Signing a package tree (the private `signing` design note, card S-1).
+//! Signing a package tree.
 //!
 //! A signature is over a short canonical statement, never an archive:
 //!
@@ -14,7 +14,7 @@
 //! file is the only place that names it). The key's identity is `key:` and the BLAKE3 hash of its public key.
 //!
 //! A signature file is strict YAML like every other file, and carries the public key so it can be checked alone;
-//! whether that key is *trusted* is decided by the pin in `islet.lock` (card S-2), not here.
+//! whether that key is *trusted* is decided by the pin in `islet.lock`, not here.
 
 use crate::blake3;
 use crate::manifest::{is_dep_key, Version};
