@@ -118,7 +118,7 @@ pub struct Package {
     pub authors: Vec<String>,
     pub repository: Option<String>,
     pub publish: bool,
-    /// The key that signs this package's releases, `key:<64 hex>` (`docs/signing.md`).
+    /// The key that signs this package's releases, `key:<64 hex>` (the private `signing` design note).
     pub publisher: Option<String>,
 }
 

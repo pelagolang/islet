@@ -2,7 +2,7 @@
 //!
 //! For each locked package it puts the package's tree into the store (checking it against the hash in the lock),
 //! links it into `deps/` as `deps/<key>@<version>`, and writes `deps/map.yaml`, the file `pelago build` reads to
-//! find source (see `docs/resolved-map.md`). `deps/` is a cache of the lock: it holds nothing that the lock and
+//! find source (see the private `resolved-map` design note). `deps/` is a cache of the lock: it holds nothing that the lock and
 //! the store cannot recreate, and it has its own `.gitignore`.
 
 use crate::lock::{Lock, Locked, Source};

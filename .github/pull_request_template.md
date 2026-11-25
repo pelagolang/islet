@@ -18,8 +18,8 @@
 - [ ] Title and commit subjects are Conventional Commits
 - [ ] CI is green
 - [ ] Tests added or changed (name them), or N/A
-- [ ] Schemas, docs and `docs/design.md` agree with the change, or N/A
-- [ ] No design decision reopened without the owner (see `docs/design.md`)
+- [ ] Schemas and docs, and the design doc in the private plans repo, agree with the change, or N/A
+- [ ] No design decision reopened without the owner (see the design doc in the private plans repo)
 - [ ] The report says which parts are conventional and which are Pelago-specific, or N/A
 
 ## Risks and follow-ups
